@@ -1,15 +1,12 @@
 #include "SDL.h"
 #include "SDL_image.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 #include <stdio.h>
 #include <vector>
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include "tinyfiledialogs.h"
 
 using namespace std;
 
@@ -21,6 +18,10 @@ double spriteSheetY = 0.0;
 int maxLayers = 3;
 int sshotCount = 0;
 int maxSshot = 10;
+
+FILE * lIn;
+char lBuffer[1024];
+char const * lFilterPatterns[1] = { "*.map" };
 
 struct grid{
     double cellW;
@@ -261,151 +262,112 @@ void saveTiles(vec2 levelMap[40][40], grid mGrid, string inFname, SDL_Renderer* 
 
 
 void saveMap(vector<layer*>& layerVec, string inFname, SDL_Renderer* renderer){
-    OPENFILENAME ofn = { 0 };       // common dialog box structure
-    char szFile[260];       // buffer for file name
-    HWND hwnd = 0;              // owner window
-    HANDLE hf;              // file handle
-
-    // Initialize OPENFILENAME
-    ZeroMemory(&ofn, sizeof(ofn));
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = hwnd;
-    ofn.lpstrFile = szFile;
-    // Set lpstrFile[0] to '\0' so that GetOpenFileName does not
-    // use the contents of szFile to initialize itself.
-    ofn.lpstrFile[0] = '\0';
-    ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = "Map\0*.map\0";
-    ofn.nFilterIndex = 1;
-    ofn.lpstrFileTitle = NULL;
-    ofn.nMaxFileTitle = 0;
-    ofn.lpstrInitialDir = NULL;
-    ofn.Flags = OFN_EXPLORER;
-
-    int gridW = layerVec[0]->layerGrid.gridW;
+	char const * lTheSaveFileName = tinyfd_saveFileDialog(
+		"Save .map file",
+		"",
+		1,
+		lFilterPatterns,
+		"Maps");
+	
+	int gridW = layerVec[0]->layerGrid.gridW;
     int gridH = layerVec[0]->layerGrid.gridH;
     int cellW = layerVec[0]->layerGrid.cellW;
     int cellH = layerVec[0]->layerGrid.cellH;
-
-    // Display the Open dialog box.
-    if(GetOpenFileNameA(&ofn)==TRUE){
-        string fName = ofn.lpstrFile;
-        string imgFname = fName.substr(0, fName.find_last_of("."));
-        imgFname += ".png";
-        fName = fName.substr(fName.find_last_of("\\") + 1);
-        SDL_Surface* loaded = IMG_Load(inFname.c_str());
-        if(loaded == NULL){
-            cout << "Null loaded.\n";
-        }
-        SDL_Surface* sshot = SDL_CreateRGBSurface(0,gridW*cellW,gridH*cellH,32,0,0,0,0);
-        SDL_FillRect(sshot, NULL, 0xFFFFFF);
-        if(fName != ""){
-            ofstream ofile(fName);
-            ofile << inFname << '\n';
-            ofile << gridW << "," << gridH << "," << cellW << "," << cellH << "," << maxLayers << '\n';
-            for(vector<layer*>::iterator it = layerVec.begin(); it != layerVec.end(); it++){
-                layer& L = *(*it);
-                for(int i = 0; i < gridW; i++){
-                    for(int j = 0; j < gridH; j++){
-                        ofile << L.layerMap[i][j].x << "," << L.layerMap[i][j].y << " ";
-                        if(L.layerMap[i][j].x != -1){
-                            SDL_Rect src;
-                            src.x = L.layerMap[i][j].x * cellW;
-                            src.y = L.layerMap[i][j].y * cellH;
-                            src.w = cellW;
-                            src.h = cellH;
-                            SDL_Rect dest;
-                            dest.x = i * cellW;
-                            dest.y = j * cellH;
-                            dest.w = cellW;
-                            dest.h = cellH;
-                            if(SDL_BlitSurface(loaded, &src, sshot, &dest) != 0){
-                                printf("Blit error. %s\n", IMG_GetError());
-                            }
-                        }
-                    }
-                    ofile << '\n';
-                }
-            }
-            ofile.close();
-            SDL_Texture* newTexture = SDL_CreateTextureFromSurface(renderer, sshot);
-            SDL_RenderCopy(renderer, newTexture, NULL, NULL);
-            if(newTexture!=NULL){
-                IMG_SavePNG(sshot, imgFname.c_str());
-            }
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-            SDL_RenderClear(renderer);
-            //saveTiles(levelMap, mGrid, inFname, renderer, imgFname);
-            SDL_FreeSurface(loaded);
-            SDL_DestroyTexture(newTexture);
-            newTexture = NULL;
-        }
-    }else{
-        cout << GetLastError() << '\n';
-    }
+	
+	string fName = lTheSaveFileName;
+	string imgFname = fName.substr(0, fName.find_last_of("."));
+	imgFname += ".png";
+	fName = fName.substr(fName.find_last_of("\\") + 1);
+	SDL_Surface* loaded = IMG_Load(inFname.c_str());
+	if(loaded == NULL){
+		cout << "Null loaded.\n";
+	}
+	SDL_Surface* sshot = SDL_CreateRGBSurface(0,gridW*cellW,gridH*cellH,32,0,0,0,0);
+	SDL_FillRect(sshot, NULL, 0xFFFFFF);
+	if(fName != ""){
+		ofstream ofile(fName);
+		ofile << inFname << '\n';
+		ofile << gridW << "," << gridH << "," << cellW << "," << cellH << "," << maxLayers << '\n';
+		for(vector<layer*>::iterator it = layerVec.begin(); it != layerVec.end(); it++){
+			layer& L = *(*it);
+			for(int i = 0; i < gridW; i++){
+				for(int j = 0; j < gridH; j++){
+					ofile << L.layerMap[i][j].x << "," << L.layerMap[i][j].y << " ";
+					if(L.layerMap[i][j].x != -1){
+						SDL_Rect src;
+						src.x = L.layerMap[i][j].x * cellW;
+						src.y = L.layerMap[i][j].y * cellH;
+						src.w = cellW;
+						src.h = cellH;
+						SDL_Rect dest;
+						dest.x = i * cellW;
+						dest.y = j * cellH;
+						dest.w = cellW;
+						dest.h = cellH;
+						if(SDL_BlitSurface(loaded, &src, sshot, &dest) != 0){
+							printf("Blit error. %s\n", IMG_GetError());
+						}
+					}
+				}
+				ofile << '\n';
+			}
+		}
+		ofile.close();
+		SDL_Texture* newTexture = SDL_CreateTextureFromSurface(renderer, sshot);
+		SDL_RenderCopy(renderer, newTexture, NULL, NULL);
+		if(newTexture!=NULL){
+			IMG_SavePNG(sshot, imgFname.c_str());
+		}
+		SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+		SDL_RenderClear(renderer);
+		//saveTiles(levelMap, mGrid, inFname, renderer, imgFname);
+		SDL_FreeSurface(loaded);
+		SDL_DestroyTexture(newTexture);
+		newTexture = NULL;
+	}
 }
 
 void loadMap(vector<layer*>& layerVec, string* texFname){
-OPENFILENAME ofn = { 0 };       // common dialog box structure
-    char szFile[260];       // buffer for file name
-    HWND hwnd = 0;              // owner window
-    HANDLE hf;              // file handle
-
-    // Initialize OPENFILENAME
-    ZeroMemory(&ofn, sizeof(ofn));
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = hwnd;
-    ofn.lpstrFile = szFile;
-    // Set lpstrFile[0] to '\0' so that GetOpenFileName does not
-    // use the contents of szFile to initialize itself.
-    ofn.lpstrFile[0] = '\0';
-    ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = "Map\0*.map\0";
-    ofn.nFilterIndex = 1;
-    ofn.lpstrFileTitle = NULL;
-    ofn.nMaxFileTitle = 0;
-    ofn.lpstrInitialDir = NULL;
-    ofn.Flags = OFN_EXPLORER;
-
-    // Display the Open dialog box.
-
-    if(GetOpenFileNameA(&ofn)==TRUE){
-        string fName = ofn.lpstrFile;
-        fName = fName.substr(fName.find_last_of("\\") + 1);
-
-        if(fName != ""){
-            ifstream ifile(fName);
-            string tStr;
-            ifile >> *texFname;
-            ifile >> tStr;
-            layerVec[0]->layerGrid.gridW = stoi( tStr.substr(0, tStr.find(',', 0)) );
+    char const * lTheOpenFileName = tinyfd_openFileDialog(
+		"Open Map",
+		"",
+		1,
+		lFilterPatterns,
+		"map files",
+		0);
+    string fName = lTheOpenFileName;
+    if(fName != ""){
+        ifstream ifile(fName);
+        string tStr;
+        ifile >> *texFname;
+        ifile >> tStr;
+        layerVec[0]->layerGrid.gridW = stoi( tStr.substr(0, tStr.find(',', 0)) );
+        tStr = tStr.substr(tStr.find(',') + 1);
+        layerVec[0]->layerGrid.gridH = stoi( tStr.substr(0, tStr.find(',', 0)) );
+        tStr = tStr.substr(tStr.find(',') + 1);
+        layerVec[0]->layerGrid.cellW = stoi( tStr.substr(0, tStr.find(',', 0)) );
+        tStr = tStr.substr(tStr.find(',') + 1);
+        int maxL = 1;
+        if(tStr.find(',') == -1){
+            layerVec[0]->layerGrid.cellH = stoi( tStr);
+        }else{
+            layerVec[0]->layerGrid.cellH = stoi( tStr.substr(0, tStr.find(',', 0)) );
             tStr = tStr.substr(tStr.find(',') + 1);
-            layerVec[0]->layerGrid.gridH = stoi( tStr.substr(0, tStr.find(',', 0)) );
-            tStr = tStr.substr(tStr.find(',') + 1);
-            layerVec[0]->layerGrid.cellW = stoi( tStr.substr(0, tStr.find(',', 0)) );
-            tStr = tStr.substr(tStr.find(',') + 1);
-            int maxL = 1;
-            if(tStr.find(',') == -1){
-                layerVec[0]->layerGrid.cellH = stoi( tStr);
-            }else{
-                layerVec[0]->layerGrid.cellH = stoi( tStr.substr(0, tStr.find(',', 0)) );
-                tStr = tStr.substr(tStr.find(',') + 1);
-                maxL = stoi( tStr);
-            }
-            for(int lCount = 0; lCount < maxL; lCount++){
-                for(int i = 0; i < layerVec[lCount]->layerGrid.gridW; i++){
-                    for(int j = 0; j < layerVec[lCount]->layerGrid.gridH; j++){
-                        ifile >> tStr;
-                        layerVec[lCount]->layerMap[i][j].x = stoi(tStr.substr(0, tStr.find(',')));
-                        layerVec[lCount]->layerMap[i][j].y = stoi(tStr.substr(tStr.find(',') + 1));
-                    }
+            maxL = stoi( tStr);
+        }
+        for(int lCount = 0; lCount < maxL; lCount++){
+            for(int i = 0; i < layerVec[lCount]->layerGrid.gridW; i++){
+                for(int j = 0; j < layerVec[lCount]->layerGrid.gridH; j++){
+                    ifile >> tStr;
+                    layerVec[lCount]->layerMap[i][j].x = stoi(tStr.substr(0, tStr.find(',')));
+                    layerVec[lCount]->layerMap[i][j].y = stoi(tStr.substr(tStr.find(',') + 1));
                 }
             }
-            ifile.close();
         }
+        ifile.close();
     }else{
-        cout << GetLastError() << '\n';
-    }
+		printf("NULL FNAME");
+	}
 }
 
 void getMouseToGrid(int* cX, int* cY, vec2 mouse, grid mGrid, screenArea activeArea){
@@ -439,6 +401,10 @@ void lowerUpper(int* xlower, int* xupper, int* ylower, int* yupper, int xrs, int
 
 
 int main( int argc, char * argv[] ){
+    #ifdef _WIN32
+	    tinyfd_winUtf8 = 1;
+    #endif
+
     std::vector<spriteSheet*> spriteSheets;
     SDL_Window* window = NULL;
 
