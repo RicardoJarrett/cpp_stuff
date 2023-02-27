@@ -1,5 +1,10 @@
-#include "SDL.h"
-#include "SDL_image.h"
+#ifdef __unix__
+	#include "SDL2/SDL.h"
+	#include "SDL2/SDL_image.h"
+#elif defined(_WIN32)
+	#include "SDL.h"
+	#include "SDL_image.h"
+#endif
 
 #include <stdio.h>
 #include <vector>
@@ -105,8 +110,10 @@ bool loadMedia(std::vector<spriteSheet*>* ssheets, SDL_Renderer** renderer){
 
     SDL_Texture* T;
 
-    T = loadTexture("C:/Users/ricar/Documents/cppProjects/LevelEditor/Overworld.png", renderer);
-    string fname = "C:/Users/ricar/Documents/cppProjects/LevelEditor/Overworld.png";
+    //T = loadTexture("C:/Users/ricar/Documents/cppProjects/LevelEditor/Overworld.png", renderer);
+    //string fname = "C:/Users/ricar/Documents/cppProjects/LevelEditor/Overworld.png";
+    T = loadTexture("Overworld.png", renderer);
+    string fname = "Overworld.png";
 
     if(T == NULL)
     {
@@ -792,7 +799,8 @@ int main( int argc, char * argv[] ){
                          tileLayer[activeLayer]->layerGrid.cellW, tileLayer[activeLayer]->layerGrid.cellH, spriteSheetX, spriteSheetY);
 
                 if(screenShot && (sshotCount < maxSshot)){
-                    string ssFname = "C:/Users/Rico/Documents/cppProjects/Project-1/screenshot_";
+                    //string ssFname = "C:/Users/Rico/Documents/cppProjects/Project-1/screenshot_";
+		    string ssFname = "/screenshot_";
                     ssFname += to_string(sshotCount);
                     ssFname += ".png";
                     SDL_Surface* surface = SDL_CreateRGBSurface(0, SCREEN_WIDTH, SCREEN_HEIGHT, 32, 0, 0, 0, 0);
