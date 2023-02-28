@@ -1,5 +1,6 @@
-##SETUP
+# SETUP
 
+## Windows
 Edit the following lines to link to your SDL files.
 
 SDLMAIN_i = 
@@ -14,6 +15,5 @@ Ex:
 SDLMAIN_i = -I"PathToSDL\include\SDL2"
 SDLMAIN_i = =IC:\include\SDL2
 
-#Ubuntu Setup
-
+## Ubuntu Setup
 sudo apt install build-essential g++ libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev -y
