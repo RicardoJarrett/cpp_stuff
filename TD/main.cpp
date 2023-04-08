@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string>
 #include <vector>
+#include <list>
 #include <map>
 #include <ctime>
 #include <cmath>
@@ -14,13 +15,20 @@
 
 #define _countof(array) (sizeof(array) / sizeof(array[0]))
 
-int SCR_W = 320;
-int SCR_H = 320;
+int SCR_W = 480;
+int SCR_H = 360;
+bool FULLSCREEN = false;
+
+enum AspectRatio{
+    r16x9,
+    r3x2
+};
 
 std::string getPath(){
     char buf[256];
     GetCurrentDirectoryA(256, buf);
-    return std::string(buf) + '\\';
+    std::string retStr = std::string(buf) + "\\";
+    return retStr;
 }
 
 SDL_Texture* loadTexture(std::string path, SDL_Renderer* renderer){
@@ -63,17 +71,20 @@ struct Stat;
 class Button{
     enum type{
         func,
+        statfunc,
         memberfunc,
     };
     SDL_Rect area;
     void (*clickFuncPtr)();
-    void (Game::*clickMFuncPtr)(Stat& _stat);
+    void (Game::*clickMFuncPtr)();
+    void (Game::*clickStatFuncPtr)(Stat& _stat);
     double bounce;
     type T;
     Game* gamePtr;
     Stat* upgStat;
 public:
     Button(SDL_Rect _area, void (*F)());
+    Button(SDL_Rect _area, void (Game::*F)(), Game* _game);
     Button(SDL_Rect _area, void (Game::*F)(Stat& _stat), Game* _game, Stat* _stat);
     bool checkClick(int x, int y);
     bool checkOver(int x, int y);
@@ -87,9 +98,15 @@ Button::Button(SDL_Rect _area, void (*F)()) : area(_area), clickFuncPtr(F){
     upgStat = nullptr;
 }
 
-Button::Button(SDL_Rect _area, void (Game::*F)(Stat& _stat), Game* _game, Stat* _stat) : area(_area), clickMFuncPtr(F), gamePtr(_game), upgStat(_stat){
+Button::Button(SDL_Rect _area, void (Game::*F)(), Game* _game) : clickMFuncPtr(F), gamePtr(_game){
     bounce = 0.0;
     T = memberfunc;
+    upgStat = nullptr;
+}
+
+Button::Button(SDL_Rect _area, void (Game::*F)(Stat& _stat), Game* _game, Stat* _stat) : area(_area), clickStatFuncPtr(F), gamePtr(_game), upgStat(_stat){
+    bounce = 0.0;
+    T = statfunc;
 }
 
 bool Button::checkClick(int x, int y){
@@ -98,8 +115,11 @@ bool Button::checkClick(int x, int y){
             case func:
                 clickFuncPtr();
                 break;
+            case statfunc:
+                (gamePtr->*clickStatFuncPtr)(*upgStat);
+                break;
             case memberfunc:
-                (gamePtr->*clickMFuncPtr)(*upgStat);
+                (gamePtr->*clickMFuncPtr)();
                 break;
         }
         bounce = 200.0;
@@ -123,17 +143,87 @@ void Button::update(double dTime){
     }
 }
 
+struct Anim{
+    std::vector<SDL_Texture*> frames;
+    double frameRate;
 
+    Anim(Anim& _anim);
+    Anim(double _frameRate);
+    void addFrameTx(SDL_Texture* _newFrame);
+};
+
+Anim::Anim(Anim& _anim){
+    frameRate = _anim.frameRate;
+    for(std::vector<SDL_Texture*>::iterator it = frames.begin(); it != frames.end(); it++){
+        frames.push_back((*it));
+    }
+}
+
+Anim::Anim(double _frameRate) : frameRate(_frameRate){
+}
+
+void Anim::addFrameTx(SDL_Texture* _newFrame){
+    frames.push_back(_newFrame);
+}
+
+struct AnimInst{
+    Anim* anim;
+    int currentFrame;
+    bool isLooping;
+
+    SDL_Rect pos;
+    SDL_Point offset;
+    double angle;
+    double frameTicker, frameDelay;
+
+    AnimInst(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed);
+    bool update(double dTime);
+};
+
+AnimInst::AnimInst(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed) : pos(_pos), angle(_angle), offset(_offset), isLooping(_loop), anim(_anim){
+    currentFrame = 0;
+    frameTicker = 0;
+    frameDelay = 1000.0 / (_anim->frameRate * _speed);
+}
+
+bool AnimInst::update(double dTime){
+    if((frameTicker - dTime) <= 0){
+        frameTicker = frameDelay + (frameTicker - dTime);
+        if(currentFrame >= (int(anim->frames.size()) - 1)){
+            currentFrame = 0;
+            if(!isLooping){
+                return true;
+            }
+        }else{
+            currentFrame++;
+        }
+    }else{
+        frameTicker -= dTime;
+    }
+    return false;
+}
 
 class Enemy{
 public:
+    enum Types{
+        tRegular,
+        tFast,
+        tHeavy
+    };
     double x, y, w, h, spd;
-    int hp, maxHp, id;
+    int hp, maxHp, id, coinDrop, dmg;
     static std::queue<int> ids;
+    Types type;
+    bool attackState;
+    bool isAttacking;
+    double atkTicker;
+    double atkDelay;
+    double aspd;
+
     static int getID();
     static void clearID(int _id);
     static void initEnemies(int _maxEnemies);
-    void update(double dTime);
+    void update(double dTime, int _spdMult);
     bool takeDamage(int _dmg);
     bool dying;
 };
@@ -170,10 +260,29 @@ bool Enemy::takeDamage(int _dmg){
     return false;
 }
 
-void Enemy::update(double dTime){
-    if(y < ((SCR_H / 2.0) - 16)){
-        y += (spd * (dTime / 1000.0));
-    }}
+void Enemy::update(double dTime, int _spdMult){
+    isAttacking = false;
+    if(!attackState){
+        int dx = (SCR_W / 2.0) - x;
+        int dy = (SCR_H - 48) - y;
+        double dist = std::sqrt((dx*dx)+(dy*dy));
+        double dxN = dx / dist;
+        double dyN = dy / dist;
+        if(dist > (128 + w)){
+            y += ((spd * _spdMult * (dTime / 1000.0)) * dyN);
+            x += ((spd * _spdMult * (dTime / 1000.0)) * dxN);
+        }else{
+            attackState = true;
+        }
+    }else{
+        if((atkTicker - dTime) <= 0){
+            atkTicker = atkDelay + (atkTicker - dTime);
+            isAttacking = true;
+        }else{
+            atkTicker -= dTime;
+        }
+    }
+}
 
 struct Stat{
     int stat;
@@ -187,7 +296,26 @@ struct Stat{
     SDL_Rect btnTexRect;
     int iconID;
     SDL_Rect iconRect;
+
+    Stat();
+    Stat(SDL_Rect _rect);
+    Stat(int x, int y, int w, int h);
 };
+Stat::Stat(){
+    btnID = -1;
+    upgradeCost = 10;
+    textTex = nullptr;
+    iconID = -1;
+    level = 1;
+    stat = 1;
+};
+Stat::Stat(SDL_Rect _rect) : Stat(){
+    btnTexRect = _rect;
+    texRect = {btnTexRect.x + 16, btnTexRect.y + 2, 60, 12};
+    iconRect = {btnTexRect.x + 2, btnTexRect.y + 2, 12, 12};
+}
+Stat::Stat(int x, int y, int w, int h) : Stat((SDL_Rect){x, y, w, h}){
+}
 
 enum GState{
     gsInit,
@@ -202,6 +330,9 @@ class Game{
     TTF_Font* font;
 
     GState state;
+    bool btnsActive;
+    bool gameOver;
+
     int fontSize;
     double fps;
     double fpsTicker;
@@ -212,51 +343,88 @@ class Game{
 
     int logoID;
     int ngbID;
-    int fenceID;
+    int nextWaveBtnID;
+    int diedSplashID;
+
     int redEnemyID;
+    int blueEnemyID;
+    int greenEnemyID;
+
     int hpBarID;
+    int hpBarBgID;
     int turretBaseID;
     int turretCannonID;
     double turretAngle;
     Enemy* targettedEnemy;
-    double turretRange;
+    double baseRange;
 
+    Anim* muzzleAnim;
+    int muzzleFlashID;
+    Anim* impactAnim;
+    int impactAnimIDs[4];
 
-    Stat Dmg;
-    Stat CoinDrop;
-    Stat SpawnRate;
+    int circleFenceID;
 
-    int CoinID;
+    int statBtnID;
+
     int coins;
-    SDL_Texture* CoinsTx;
+    int CoinTxID;
+    SDL_Rect CoinIconRect;
+    SDL_Texture* CoinTextTx;
+    SDL_Rect CoinTextRect;
+    int towerHp;
+    int towerMaxHp;
+
+    int currentWave;
+    int nextWaveCounter;
+    int nextWaveReq;
+    SDL_Texture* WaveTextTx;
+    SDL_Rect WaveTextRect;
 
     SDL_Rect logoRect;
     SDL_Rect ngbRect;
-    SDL_Rect fenceRect;
+    SDL_Rect nextWaveRect;
+
     SDL_Rect turretBaseRect;
     SDL_Rect turretCannonRect;
     SDL_Point turretPivotOffset;
-    SDL_Rect CoinRect;
-    SDL_Rect CoinsTxRect;
+
+    SDL_Rect circleFenceRect;
 
     std::vector<Button*> buttons;
     std::vector<SDL_Texture*> textures;
     std::map<std::string, int> texIDs;
     std::vector<Enemy*> enemies;
+    std::vector<Anim*> anims;
+    std::vector<AnimInst*> animInstances;
+
+    std::map<std::string, Stat*> statMap;
+    std::vector<Stat*> stats;
 
     int MAX_ENEMIES;
     double spawnDelay;
     double spawnTicker;
     double fireDelay;
     double fireTicker;
+    double autoFireDelay;
+    double autoFireTicker;
+
+    void initStats();
 
     void targetEnemy();
+    bool fireTurret();
 
     void statUpgF(Stat& _stat);
-    void drawUpgBtn(Stat& _stat);
+    void drawUpgBtns();
 
+    void newStatBtn(Stat* _stat, int _texID);
+    void newStatBtn(Stat* _stat, std::string _iconPath);
 
     void updateCoins(int _coins);
+    void updateWaves();
+
+    bool updateAnims();
+    void nextWaveBtnF();
 public:
     Game();
     ~Game();
@@ -265,76 +433,119 @@ public:
     void destroyButtons();
     void destroyTextures();
     void destroyEnemies();
+    void destroyStats();
+    void init();
     void updateState(GState newState);
     int newTexture(std::string _path);
     void drawTexture(int _id, SDL_Rect _dest);
     void drawTurret(int _id, SDL_Rect _dest, double angle);
     int spawnNewEnemy();
+    AnimInst* spawnAnim(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed);
 };
 
 Game::Game(){
     state = gsInit;
     fps = 30.0;
     fpsTicker = 1000.0 / fps;
-    tick = false;;
-    logoRect = {50, 30, 228, 122};
-    ngbRect = {32, 240, 256, 64};
-    fenceRect = {0, int(SCR_H / 2.0) - 16, SCR_W, 32};
+
+    logoRect = {(SCR_W / 2.0) - 114, 30, 228, 122};
+    ngbRect = {(SCR_W / 2.0) - 128, 240, 256, 64};
+    nextWaveRect = {(SCR_W / 2.0) - 64, SCR_H / 0.75, 128, 32};
+
     turretBaseRect = {int(SCR_W / 2.0) - 32, SCR_H - 80, 64, 64};
     turretCannonRect = {turretBaseRect.x + 20, turretBaseRect.y - 20, 24, 64};
-    turretAngle = 0.0;
+
     turretPivotOffset = {12, 52};
-    targettedEnemy = nullptr;
+
     SDL_GetMouseState(&mouseX, &mouseY);
+
+    MAX_ENEMIES = 100;
+
+    baseRange = 220.0;
+    circleFenceRect = {int(SCR_W / 2.0) - 128, (SCR_H - 48) - 128, 256, 256};
+
+    fontSize = 8;
+    renderer = nullptr;
+
+    CoinIconRect = {int(SCR_W / 8.0), 10, 32, 32};
+    CoinTextRect = {int(SCR_W / 8.0) + 32, 12, 64, 32};
+
+    WaveTextRect = {int((SCR_W / 2.0)), 10, 64, 32};
+    btnsActive = true;
+    tick = false;
+    font = nullptr;
+    logoID = -1;
+    ngbID = -1;
+}
+
+void Game::init(){
+    btnsActive = true;
+    tick = false;
+    font = nullptr;
+    gameOver = false;
+
+    turretAngle = 0.0;
+    muzzleAnim = nullptr;
+    muzzleFlashID = -1;
+    impactAnim = nullptr;
+    impactAnimIDs[0] = -1;
+    impactAnimIDs[1] = -1;
+    impactAnimIDs[2] = -1;
+    impactAnimIDs[3] = -1;
+
+    targettedEnemy = nullptr;
     lClick = false;
     clickBounce = 0.0;
     logoID = -1;
     ngbID = -1;
-    fenceID = -1;
+    nextWaveBtnID = -1;
+    diedSplashID = -1;
+
     redEnemyID = -1;
-    MAX_ENEMIES = 20;
-    spawnDelay = 1000.0;
+    blueEnemyID = -1;
+    greenEnemyID = -1;
+
+    spawnDelay = 2000.0;
+    autoFireDelay = 500.0;
     spawnTicker = 0.0;
-    turretRange = 220.0;
+    autoFireTicker = 0.0;
 
+    towerHp = 100;
+    towerMaxHp = 100;
+    hpBarID = -1;
+    hpBarBgID = -1;
+
+    circleFenceID = -1;
+    statBtnID = -1;
+
+    coins = 0;
+    CoinTxID = -1;
+    CoinTextTx = nullptr;
+
+    currentWave = 1;
+    nextWaveCounter = 0;
+    nextWaveReq = 25;
+    WaveTextTx = nullptr;
+
+    initStats();
+}
+
+void Game::initStats(){
+    std::list<std::string> statNames = {"Dmg", "CoinDrop", "SpawnRate", "EnemySpeed", "AutofireRate", "fireRange", "maxEnemies"};
     int statOffset = int(SCR_H / 2.0) + 64;
+    int rowOffset = 64 + 4;
+    int max_row = 4;
+    int iCount = 0;
+    for(std::list<std::string>::iterator it = statNames.begin(); it != statNames.end(); it++, iCount++){
+        statMap[(*it)] = new Stat(10 + (rowOffset * (iCount / max_row)), statOffset + ((iCount % max_row) * 20), 64, 16);
+    }
+}
 
-    Dmg.btnID = -1;
-    Dmg.btnTexRect = {10, statOffset, 64, 16};
-    Dmg.texRect = {Dmg.btnTexRect.x + 16, Dmg.btnTexRect.y + 2, 60, 12};
-    Dmg.upgradeCost = 10;
-    Dmg.textTex = nullptr;
-    Dmg.iconID = -1;
-    Dmg.iconRect = {Dmg.btnTexRect.x + 2, Dmg.btnTexRect.y + 2, 12, 12};
-    Dmg.level = 1;
-    Dmg.stat = 1;
-
-    CoinDrop.btnID = -1;
-    CoinDrop.btnTexRect = {10, statOffset + 20, 64, 16};
-    CoinDrop.texRect = {CoinDrop.btnTexRect.x + 16, CoinDrop.btnTexRect.y + 2, 60, 12};
-    CoinDrop.upgradeCost = 10;
-    CoinDrop.textTex = nullptr;
-    CoinDrop.iconID = -1;
-    CoinDrop.iconRect = {CoinDrop.btnTexRect.x + 2, CoinDrop.btnTexRect.y + 2, 12, 12};
-    CoinDrop.level = 1;
-    CoinDrop.stat = 1;
-
-    SpawnRate.btnID = -1;
-    SpawnRate.btnTexRect = {10, statOffset + 40, 64, 16};
-    SpawnRate.texRect = {SpawnRate.btnTexRect.x + 16, SpawnRate.btnTexRect.y + 2, 60, 12};
-    SpawnRate.upgradeCost = 10;
-    SpawnRate.textTex = nullptr;
-    SpawnRate.iconID = -1;
-    SpawnRate.iconRect = {SpawnRate.btnTexRect.x + 2, SpawnRate.btnTexRect.y + 2, 12, 12};
-    SpawnRate.level = 1;
-    SpawnRate.stat = 1;
-
-    fontSize = 8;
-    renderer = nullptr;
-    font = nullptr;
-    CoinsTx = nullptr;
-    CoinRect = {int(SCR_W / 8.0), 10, 32, 32};
-    CoinsTxRect = {int(SCR_W / 8.0) + 32, 12, 64, 32};
+void Game::destroyStats(){
+    for(std::map<std::string, Stat*>::iterator it = statMap.begin(); it != statMap.end(); it++){
+        (*it).second = nullptr;
+    }
+    statMap.clear();
 }
 
 void Game::destroyButtons(){
@@ -353,7 +564,6 @@ void Game::destroyTextures(){
     texIDs.clear();
     logoID = -1;
     ngbID = -1;
-    fenceID = -1;
     hpBarID = -1;
 }
 
@@ -365,7 +575,7 @@ void Game::destroyEnemies(){
 }
 
 void Game::targetEnemy(){
-    double lowestDist = turretRange;
+    double lowestDist = baseRange + (10 * statMap["fireRange"]->stat);
     for(std::vector<Enemy*>::iterator it = enemies.begin(); it != enemies.end(); it++){
         Enemy& E = (*(*it));
         double xd = (E.x + (E.w / 2.0)) - (turretBaseRect.x + (turretBaseRect.w / 2.0));
@@ -380,16 +590,34 @@ void Game::targetEnemy(){
 }
 
 int Game::spawnNewEnemy(){
-    if(int(enemies.size()) < MAX_ENEMIES){
+    if(int(enemies.size()) < (10 + (statMap["maxEnemies"]->stat * 5)) && (int(enemies.size()) < MAX_ENEMIES)){
         Enemy* E = new Enemy();
         E->id = Enemy::getID();
-        E->maxHp = 5;
-        E->hp = 5;
-        E->x = std::rand() % (SCR_W - 16);
+        E->maxHp = 5 * (1.0 + ((currentWave - 1) / 2.0));
+        E->hp = 5 * (1.0 + ((currentWave - 1) / 2.0));
+        E->x = (std::rand() % int(SCR_W * 2.0)) - (SCR_W);
         E->y = -32.0;
         E->w = 16.0;
         E->h = 16.0;
-        E->spd = 32.0;
+        E->spd = 16.0;
+        E->coinDrop = 1 + (currentWave / 2.0);
+        E->atkDelay = 1000.0;
+        E->dmg = 1;
+        E->aspd = 0.5;
+
+        if(((currentWave - 3) % 10) == 0){
+            E->type = Enemy::Types::tFast;
+            E->spd *= 2;
+        }else if(((currentWave + 3) % 10) == 0){
+            E->type = Enemy::Types::tHeavy;
+            E->w *= 2;
+            E->h *= 2;
+            E->maxHp *= 2;
+            E->hp *= 2;
+        }else{
+            E->type = Enemy::Types::tRegular;
+        }
+
         enemies.push_back(E);
         return E->id;
     }
@@ -400,13 +628,43 @@ Game::~Game(){
     destroyButtons();
     destroyTextures();
     destroyEnemies();
+    destroyStats();
 }
 
 Game game;
 
+void Game::newStatBtn(Stat* _stat, int _texID){
+    _stat->btnID = statBtnID;
+    buttons.push_back(new Button(_stat->btnTexRect, &statUpgF, this, _stat));
+    _stat->textTex = renderText(std::to_string(_stat->level) + ": " + std::to_string(_stat->upgradeCost), {0,0,0}, renderer, font);
+    _stat->iconID = _texID;
+}
+
+void Game::newStatBtn(Stat* _stat, std::string _iconPath){
+    _stat->iconID = newTexture(_iconPath);
+    newStatBtn(_stat, _stat->iconID);
+}
+
 void Game::updateCoins(int _coins){
     coins += _coins;
-    CoinsTx = renderText(std::to_string(coins), {0,0,0}, renderer, font);
+    CoinTextTx = renderText(std::to_string(coins), {0,0,0}, renderer, font);
+}
+
+void Game::updateWaves(){
+    nextWaveCounter++;
+    if(nextWaveCounter >= nextWaveReq){
+        //buttons.push_back(new Button(nextWaveRect, nextWaveBtnF, this));
+        currentWave++;
+        nextWaveCounter = 0;
+    }
+    std::string tStr = "Wave " + std::to_string(currentWave) + " (" + std::to_string(nextWaveCounter) + " / " + std::to_string(nextWaveReq) + ")";
+    WaveTextTx = renderText(tStr, {0,0,0}, renderer, font);
+}
+
+void Game::nextWaveBtnF(){
+    nextWaveCounter = 0;
+    std::string tStr = "Wave " + std::to_string(currentWave) + " (" + std::to_string(nextWaveCounter) + " / " + std::to_string(nextWaveReq) + ")";
+    WaveTextTx = renderText(tStr, {0,0,0}, renderer, font);
 }
 
 void newGameBtn(){
@@ -439,8 +697,7 @@ void Game::drawTexture(int _id, SDL_Rect _dest){
     }
 }
 
-void DrawCircle(SDL_Renderer* renderer, int32_t centreX, int32_t centreY, int32_t radius)
-{
+void DrawCircle(SDL_Renderer* renderer, int32_t centreX, int32_t centreY, int32_t radius){
     const int32_t diameter = (radius * 2);
 
     int32_t x = (radius - 1);
@@ -478,13 +735,13 @@ void Game::drawTurret(int _id, SDL_Rect _dest, double angle){
         SDL_RenderCopyEx(renderer, textures[_id], NULL, &_dest, angle, &turretPivotOffset, SDL_FLIP_NONE);
     }
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    DrawCircle(renderer, turretBaseRect.x  + (turretBaseRect.w / 2.0), turretBaseRect.y + (turretBaseRect.h / 2.0), turretRange);
+    DrawCircle(renderer, turretBaseRect.x  + (turretBaseRect.w / 2.0), turretBaseRect.y + (turretBaseRect.h / 2.0), baseRange + (statMap["fireRange"]->stat * 10));
 }
 
 void Game::statUpgF(Stat& _stat){
     if(coins >= _stat.upgradeCost){
         updateCoins(-_stat.upgradeCost);
-        _stat.upgradeCost *= 1.1;
+        _stat.upgradeCost *= 1.3;
         SDL_DestroyTexture(_stat.textTex);
         _stat.level++;
         _stat.stat++;
@@ -492,14 +749,45 @@ void Game::statUpgF(Stat& _stat){
     }
 }
 
-void Game::drawUpgBtn(Stat& _stat){
-    drawTexture(_stat.btnID, _stat.btnTexRect);
-    drawTexture(_stat.iconID, _stat.iconRect);
-    int txw, txh;
-    SDL_QueryTexture(_stat.textTex, NULL, NULL, &txw, &txh);
-    _stat.texRect.w = txw * 1.5;
-    _stat.texRect.h = txh * 1.5;
-    SDL_RenderCopy(renderer, _stat.textTex, NULL, &_stat.texRect);
+void Game::drawUpgBtns(){
+    for(std::map<std::string, Stat*>::iterator it = statMap.begin(); it != statMap.end(); it++){
+        drawTexture((*it).second->btnID, (*it).second->btnTexRect);
+        drawTexture((*it).second->iconID, (*it).second->iconRect);
+        int txw, txh;
+        SDL_QueryTexture((*it).second->textTex, NULL, NULL, &txw, &txh);
+        (*it).second->texRect.w = txw * 1.5;
+        (*it).second->texRect.h = txh * 1.5;
+        SDL_RenderCopy(renderer, (*it).second->textTex, NULL, &((*it).second->texRect));
+    }
+}
+
+AnimInst* Game::spawnAnim(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed){
+    AnimInst* _A = new AnimInst(_anim, _pos, _angle, _offset, _loop, _speed);
+    return _A;
+}
+
+bool Game::fireTurret(){
+    if(targettedEnemy != nullptr){
+        targettedEnemy->takeDamage(statMap["Dmg"]->stat);
+        SDL_Rect pos = {turretCannonRect.x - 4, turretCannonRect.y - 32, 32, 32};
+        SDL_Point offset = turretPivotOffset;
+        offset.x += 4;
+        offset.y += 32;
+        animInstances.push_back(spawnAnim(muzzleAnim, pos, turretAngle, offset, false, 1.0));
+        return true;
+    }else{
+        targetEnemy();
+        if(targettedEnemy != nullptr){
+            targettedEnemy->takeDamage(statMap["Dmg"]->stat);
+            SDL_Rect pos = {turretCannonRect.x - 4, turretCannonRect.y - 32, 32, 32};
+            SDL_Point offset = turretPivotOffset;
+            offset.x += 4;
+            offset.y += 32;
+            animInstances.push_back(spawnAnim(muzzleAnim, pos, turretAngle, offset, false, 1.0));
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Game::update(double dTime){
@@ -539,6 +827,11 @@ bool Game::update(double dTime){
                             turretAngle += 5.0;
                         }
                         break;
+                    case SDLK_RETURN:
+                        if(gameOver){
+                            updateState(gsInit);
+                        }
+                        break;
                 }
                 break;
             case SDL_MOUSEMOTION:
@@ -563,78 +856,135 @@ bool Game::update(double dTime){
     }// poll &e
 
     if(state == gsInit){
+        destroyButtons();
+        destroyEnemies();
+        destroyTextures();
+        destroyStats();
+        init();
         font = TTF_OpenFont("slkscr.ttf", fontSize);
         logoID = newTexture("TowerDefence.png");
         ngbID = newTexture("NewGame.png");
         buttons.push_back(new Button(ngbRect, newGameBtn));
+        towerHp = 100;
+        towerMaxHp = 100;
         updateState(gsMainMenu);
     }else if(state == gsMainMenu){
         drawTexture(logoID, logoRect);
         drawTexture(ngbID, ngbRect);
     }else if(state == gsGameStart){
         std::string path = getPath();
-        fenceID = newTexture("fence2.png");
+        nextWaveBtnID = newTexture("nextWave.png");
+        diedSplashID = newTexture("diedSplash.png");
+
         redEnemyID = newTexture("redEnemy.png");
+        blueEnemyID = newTexture("blueEnemy.png");
+        greenEnemyID = newTexture("greenEnemy.png");
+
         hpBarID = newTexture("hpBar.png");
+        hpBarBgID = newTexture("hpBar_bg.png");
         Enemy::initEnemies(MAX_ENEMIES);
         turretBaseID = newTexture("td_basic_towers\\Tower.png");
         turretCannonID = newTexture("td_basic_towers\\Cannon.png");
+        circleFenceID = newTexture("circle_fence.png");
+        muzzleFlashID = newTexture("MuzzleFlash.png");
 
-        CoinID = newTexture("coin.png");
-        updateCoins(0);
+        impactAnimIDs[0] = newTexture("impact_0.png");
+        impactAnimIDs[1] = newTexture("impact_1.png");
+        impactAnimIDs[2] = newTexture("impact_2.png");
+        impactAnimIDs[3] = newTexture("impact_3.png");
 
-        Dmg.btnID = newTexture("button_turq.png");
-        buttons.push_back(new Button(Dmg.btnTexRect, &statUpgF, this, &Dmg));
-        Dmg.textTex = renderText(std::to_string(Dmg.level) + ": " + std::to_string(Dmg.upgradeCost), {0,0,0}, renderer, font);
-        Dmg.iconID = newTexture("bullet.png");
+        CoinTxID = newTexture("coin.png");
+        updateCoins(100);
+        WaveTextTx = renderText("Wave " + std::to_string(currentWave) + " (" + std::to_string(nextWaveCounter) + " / " + std::to_string(nextWaveReq) + ")", {0,0,0}, renderer, font);
 
-        CoinDrop.btnID = Dmg.btnID;
-        buttons.push_back(new Button(CoinDrop.btnTexRect, &statUpgF, this, &CoinDrop));
-        CoinDrop.textTex = renderText(std::to_string(CoinDrop.level) + ": " + std::to_string(CoinDrop.upgradeCost), {0,0,0}, renderer, font);
-        CoinDrop.iconID = CoinID;
+        statBtnID = newTexture("button_turq.png");
 
-        SpawnRate.btnID = Dmg.btnID;
-        buttons.push_back(new Button(SpawnRate.btnTexRect, &statUpgF, this, &SpawnRate));
-        SpawnRate.textTex = renderText(std::to_string(SpawnRate.level) + ": " + std::to_string(SpawnRate.upgradeCost), {0,0,0}, renderer, font);
-        SpawnRate.iconID = newTexture("Hourglass.png");
+        newStatBtn(statMap["Dmg"], "bullet.png");
+        newStatBtn(statMap["CoinDrop"], CoinTxID);
+        newStatBtn(statMap["SpawnRate"], "Hourglass.png");
+        newStatBtn(statMap["EnemySpeed"], "speedIcon.png");
+        newStatBtn(statMap["AutofireRate"], "autofireIcon.png");
+        newStatBtn(statMap["fireRange"], "rangeIcon.png");
+        newStatBtn(statMap["maxEnemies"], "maxEnemyIcon.png");
+
+        muzzleAnim = new Anim{30.0};
+        muzzleAnim->addFrameTx(textures[muzzleFlashID]);
+        muzzleAnim->addFrameTx(textures[muzzleFlashID]);
+
+        impactAnim = new Anim{30.0};
+        impactAnim->addFrameTx(textures[impactAnimIDs[0]]);
+        impactAnim->addFrameTx(textures[impactAnimIDs[1]]);
+        impactAnim->addFrameTx(textures[impactAnimIDs[2]]);
+        impactAnim->addFrameTx(textures[impactAnimIDs[3]]);
 
         updateState(gsGame);
     }else if(state == gsGame){
-        drawTexture(fenceID, fenceRect);
         drawTexture(turretBaseID, turretBaseRect);
         drawTurret(turretCannonID, turretCannonRect, turretAngle);
+
         if(spawnTicker > 0.0){
             spawnTicker -= dTime;
         }else{
-            int newID = spawnNewEnemy();
-            spawnTicker = spawnDelay / SpawnRate.stat;
-        }
-        if(lClick){
-            if(targettedEnemy != nullptr){
-                targettedEnemy->takeDamage(Dmg.stat);
-            }else{
-                targetEnemy();
-                if(targettedEnemy != nullptr){
-                    targettedEnemy->takeDamage(Dmg.stat);
-                }
+            if(int(enemies.size()) < (nextWaveReq - nextWaveCounter)){
+                int newID = spawnNewEnemy();
+                spawnTicker = spawnDelay / statMap["SpawnRate"]->stat;
             }
         }
+
+        autoFireTicker -= dTime;
+        if((autoFireTicker <= 0) && !(gameOver)){
+            if(fireTurret()){
+                autoFireTicker = autoFireDelay * (1.0 / statMap["AutofireRate"]->stat);
+            }
+        }
+        SDL_Rect hpRect = {int(SCR_W / 2.0) - 32, SCR_H - 10, int(64 * double(autoFireTicker / autoFireDelay)), 4};
+        drawTexture(hpBarID, hpRect);
+
+        if((lClick) && !(gameOver)){
+            fireTurret();
+        }
+
+        drawTexture(circleFenceID, circleFenceRect);
+
         for(std::vector<Enemy*>::iterator it = enemies.begin(); it != enemies.end();){
             if((*it)->dying){
+                updateCoins((*it)->coinDrop * (1.0 + (statMap["CoinDrop"]->stat - 1)));
                 if((*it) == targettedEnemy){
                     targettedEnemy = nullptr;
                 }
                 Enemy::clearID((*it)->id);
                 delete (*it);
                 it = enemies.erase(it);
-                updateCoins(CoinDrop.stat);
+                updateWaves();
             }else{
-                (*it)->update(dTime);
+                if(!gameOver){
+                    (*it)->update(dTime, statMap["EnemySpeed"]->stat);
+                    if((*it)->isAttacking){
+                        SDL_Rect pos = {(*it)->x + ((*it)->w / 2.0)- 32, (*it)->y + (*it)->w - 32, 64, 64};
+                        SDL_Point offset = {0,0};
+                        animInstances.push_back(spawnAnim(impactAnim, pos, 0.0, offset, false, 0.5));
+                        towerHp -= (*it)->dmg;
+                        if(towerHp <= 0){
+                            gameOver = true;
+                        }
+                    }
+                }
                 if((*it) == targettedEnemy){
                     DrawCircle(renderer, (*it)->x + ((*it)->w / 2.0), (*it)->y + ((*it)->h / 2.0), (*it)->w);
                 }
                 SDL_Rect enemyRect = {int((*it)->x), int((*it)->y), int((*it)->w), int((*it)->h)};
-                drawTexture(redEnemyID, enemyRect);
+                switch((*it)->type){
+                    case Enemy::Types::tFast:
+                        drawTexture(blueEnemyID, enemyRect);
+                        break;
+                    case Enemy::Types::tHeavy:
+                        drawTexture(greenEnemyID, enemyRect);
+                        break;
+                    case Enemy::Types::tRegular:
+                    default:
+                        drawTexture(redEnemyID, enemyRect);
+                        break;
+                }
                 SDL_Rect hpRect = enemyRect;
                 hpRect.y -= 8;
                 hpRect.h = 4;
@@ -644,25 +994,51 @@ bool Game::update(double dTime){
             }
         }
 
-        drawUpgBtn(Dmg);
-        drawUpgBtn(CoinDrop);
-        drawUpgBtn(SpawnRate);
+        for(std::vector<AnimInst*>::iterator it = animInstances.begin(); it != animInstances.end();){
+            SDL_RenderCopyEx(renderer, (*it)->anim->frames[(*it)->currentFrame], NULL, &(*it)->pos, (*it)->angle, &(*it)->offset, SDL_FLIP_NONE);
+
+            if((*it)->update(dTime)){
+                delete (*it);
+                it = animInstances.erase(it);
+            }else{
+                it++;
+            }
+        }
+
+        drawUpgBtns();
+
+        SDL_Rect towerhpRect = {int(SCR_W / 2.0) - 129, 39, 258, 18};
+        drawTexture(hpBarBgID, towerhpRect);
+        towerhpRect = {int(SCR_W / 2.0) - 128, 40, int(256 * double(double(towerHp) / double(towerMaxHp))), 16};
+        drawTexture(hpBarID, towerhpRect);
 
         int txw, txh;
-        drawTexture(CoinID, CoinRect);
-        SDL_QueryTexture(CoinsTx, NULL, NULL, &txw, &txh);
-        CoinsTxRect.w = txw * 3;
-        CoinsTxRect.h = txh * 3;
-        SDL_RenderCopy(renderer, CoinsTx, NULL, &CoinsTxRect);
+        drawTexture(CoinTxID, CoinIconRect);
+        SDL_QueryTexture(CoinTextTx, NULL, NULL, &txw, &txh);
+        CoinTextRect.w = txw * 3;
+        CoinTextRect.h = txh * 3;
+        SDL_RenderCopy(renderer, CoinTextTx, NULL, &CoinTextRect);
 
+        SDL_QueryTexture(WaveTextTx, NULL, NULL, &txw, &txh);
+        WaveTextRect.w = txw * 2;
+        WaveTextRect.h = txh * 2;
+        SDL_RenderCopy(renderer, WaveTextTx, NULL, &WaveTextRect);
+
+        if(gameOver){
+            btnsActive = false;
+            SDL_Rect splashRect = {0, 0, SCR_W, SCR_H};
+            drawTexture(diedSplashID, splashRect);
+        }
     }
 
-    for(std::vector<Button*>::iterator it = buttons.begin(); it != buttons.end(); it++){
-        Button& B = *(*it);
-        B.update(dTime);
-        if(lClick){
-            if(B.checkClick(mouseX, mouseY)){
-                break;
+    if(btnsActive){
+        for(std::vector<Button*>::iterator it = buttons.begin(); it != buttons.end(); it++){
+            Button& B = *(*it);
+            B.update(dTime);
+            if(lClick){
+                if(B.checkClick(mouseX, mouseY)){
+                    break;
+                }
             }
         }
     }
@@ -706,6 +1082,19 @@ int main(int argc, char* argv[]){
     }
 
     if(initSuccess){
+        AspectRatio aspect;
+        SDL_DisplayMode dm;
+        if(SDL_GetCurrentDisplayMode(0, &dm) >= 0){
+            double div = double(dm.w) / double(dm.h);
+            if(div > (1.7) && div < (1.8)){
+                aspect = r16x9;
+            }else if(div = (1.5)){
+                aspect = r3x2;
+            }
+            if(FULLSCREEN == true){
+
+            }
+        }
         game.setRenderer(renderer);
         bool quit = false;
 
