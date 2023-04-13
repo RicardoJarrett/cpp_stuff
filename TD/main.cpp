@@ -3,6 +3,7 @@
 #include "SDL_image.h"
 #include "SDL_ttf.h"
 #include <iostream>
+#include <fstream>
 #include <Windows.h>
 #include <stdlib.h>
 #include <string>
@@ -12,12 +13,15 @@
 #include <ctime>
 #include <cmath>
 #include <queue>
+#include <algorithm>
 
 #define _countof(array) (sizeof(array) / sizeof(array[0]))
 
-int SCR_W = 480;
-int SCR_H = 360;
-bool FULLSCREEN = false;
+int SCR_W = 1280;//480;
+int SCR_H = 720;//360;
+int LEVEL_W = 4096;
+int LEVEL_H = 4096;
+bool FULLSCREEN = true;
 
 enum AspectRatio{
     r16x9,
@@ -49,12 +53,11 @@ SDL_Texture* loadTexture(std::string path, SDL_Renderer* renderer){
     return retTex;
 }
 
-SDL_Texture* renderText(std::string _text, SDL_Color _col, SDL_Renderer* renderer, TTF_Font* _font)
-{
+SDL_Texture* renderText(std::string _text, SDL_Color _col, SDL_Renderer* renderer, TTF_Font* _font){
     SDL_Texture* retTx = nullptr;
     SDL_Surface* textSurf = TTF_RenderText_Blended(_font, _text.c_str(), _col);
     if(textSurf== NULL){
-        std::cout << "Could not render text: " << _text << "\n";
+        std::cout << "Could not render text: " << _text << "\n" << TTF_GetError() << "\n";
     }else{
         retTx = SDL_CreateTextureFromSurface(renderer, textSurf);
         if(retTx == NULL){
@@ -263,8 +266,8 @@ bool Enemy::takeDamage(int _dmg){
 void Enemy::update(double dTime, int _spdMult){
     isAttacking = false;
     if(!attackState){
-        int dx = (SCR_W / 2.0) - x;
-        int dy = (SCR_H - 48) - y;
+        int dx = (LEVEL_W / 2.0) - x;
+        int dy = (LEVEL_H / 2.0) - y;
         double dist = std::sqrt((dx*dx)+(dy*dy));
         double dxN = dx / dist;
         double dyN = dy / dist;
@@ -327,7 +330,18 @@ enum GState{
 
 class Game{
     SDL_Renderer* renderer;
+    SDL_Texture* ScrSurface;
+    SDL_Texture* LevelSurface;
+    uint32_t bgCol;
+    SDL_Rect ScrnRect;
+    SDL_Rect LevelRect;
+    double ViewAngle;
+    SDL_Rect ViewRect;
+    double viewScale;
+
     TTF_Font* font;
+    std::vector<std::pair<int, std::string>> hiScores;
+    SDL_Texture* hiscoreTexs[4];
 
     GState state;
     bool btnsActive;
@@ -372,8 +386,8 @@ class Game{
     SDL_Rect CoinIconRect;
     SDL_Texture* CoinTextTx;
     SDL_Rect CoinTextRect;
-    int towerHp;
-    int towerMaxHp;
+    double towerHp;
+    double towerMaxHp;
 
     int currentWave;
     int nextWaveCounter;
@@ -425,11 +439,13 @@ class Game{
 
     bool updateAnims();
     void nextWaveBtnF();
+
+    void loadHiscores();
 public:
     Game();
     ~Game();
     bool update(double dTime);
-    void setRenderer(SDL_Renderer* _renderer);
+    void setRenderer(SDL_Renderer* _renderer, SDL_Texture* _ScrSurface, SDL_Texture* _LevelSurface);
     void destroyButtons();
     void destroyTextures();
     void destroyEnemies();
@@ -438,6 +454,7 @@ public:
     void updateState(GState newState);
     int newTexture(std::string _path);
     void drawTexture(int _id, SDL_Rect _dest);
+    void drawTexture(int _id, SDL_Rect _dest, double _angle);
     void drawTurret(int _id, SDL_Rect _dest, double angle);
     int spawnNewEnemy();
     AnimInst* spawnAnim(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed);
@@ -445,14 +462,26 @@ public:
 
 Game::Game(){
     state = gsInit;
+    ViewAngle = 0.0;
+    ScrnRect = {0, 0, SCR_W, SCR_H};
+
+    LevelRect = {0, 0, LEVEL_W, LEVEL_H};
+    ViewRect = {0, 0, SCR_W, SCR_H};
+    viewScale = 1.0;
+
+    hiscoreTexs[0] = nullptr;
+    hiscoreTexs[1] = nullptr;
+    hiscoreTexs[3] = nullptr;
+    hiscoreTexs[4] = nullptr;
+
     fps = 30.0;
     fpsTicker = 1000.0 / fps;
 
-    logoRect = {(SCR_W / 2.0) - 114, 30, 228, 122};
-    ngbRect = {(SCR_W / 2.0) - 128, 240, 256, 64};
+    logoRect = {(SCR_W / 2.0) - (SCR_W / 4.0), (SCR_H / 8.0), (SCR_W / 2.0), (SCR_H / 4.0)};
+    ngbRect = {(SCR_W / 2.0) - 128, (SCR_H / 4.0) * 3.0, 256, 64};
     nextWaveRect = {(SCR_W / 2.0) - 64, SCR_H / 0.75, 128, 32};
 
-    turretBaseRect = {int(SCR_W / 2.0) - 32, SCR_H - 80, 64, 64};
+    turretBaseRect = {int(LEVEL_W / 2.0) - 32, int(LEVEL_H / 2.0) - 32, 64, 64};
     turretCannonRect = {turretBaseRect.x + 20, turretBaseRect.y - 20, 24, 64};
 
     turretPivotOffset = {12, 52};
@@ -462,7 +491,7 @@ Game::Game(){
     MAX_ENEMIES = 100;
 
     baseRange = 220.0;
-    circleFenceRect = {int(SCR_W / 2.0) - 128, (SCR_H - 48) - 128, 256, 256};
+    circleFenceRect = {int(LEVEL_W / 2.0) - 128, int(LEVEL_H / 2.0) - 128, 256, 256};
 
     fontSize = 8;
     renderer = nullptr;
@@ -476,6 +505,27 @@ Game::Game(){
     font = nullptr;
     logoID = -1;
     ngbID = -1;
+}
+
+void Game::loadHiscores(){
+    std::ifstream hiscoresF;
+    hiscoresF.open(getPath() + "hiscores.sav");
+    if(hiscoresF.is_open()){
+        std::string line;
+        while(std::getline(hiscoresF, line)){
+            std::string tStrPlayer = line.substr(0, line.find(":"));
+            std::string tStrScore = line.substr(line.find(":")+1);
+            hiScores.push_back(make_pair(std::stoi(tStrScore), tStrPlayer));
+        }
+    }
+    hiscoresF.close();
+    sort(hiScores.begin(), hiScores.end());
+    reverse(hiScores.begin(), hiScores.end());
+    hiscoreTexs[0] = renderText("HiScores", {0,0,0}, renderer, font);
+    for(int i = 0; i < 3; i++){
+        std::string tStr = hiScores[i].second + " : "  + std::to_string(hiScores[i].first);
+        hiscoreTexs[i+1] = renderText(tStr, {0,0,0}, renderer, font);
+    }
 }
 
 void Game::init(){
@@ -510,8 +560,8 @@ void Game::init(){
     spawnTicker = 0.0;
     autoFireTicker = 0.0;
 
-    towerHp = 100;
-    towerMaxHp = 100;
+    towerHp = 100.0;
+    towerMaxHp = 100.0;
     hpBarID = -1;
     hpBarBgID = -1;
 
@@ -524,20 +574,22 @@ void Game::init(){
 
     currentWave = 1;
     nextWaveCounter = 0;
-    nextWaveReq = 25;
+    nextWaveReq = 5;
     WaveTextTx = nullptr;
 
     initStats();
+    font = TTF_OpenFont("slkscr.ttf", fontSize);
+    loadHiscores();
 }
 
 void Game::initStats(){
-    std::list<std::string> statNames = {"Dmg", "CoinDrop", "SpawnRate", "EnemySpeed", "AutofireRate", "fireRange", "maxEnemies"};
-    int statOffset = int(SCR_H / 2.0) + 64;
-    int rowOffset = 64 + 4;
+    std::list<std::string> statNames = {"Dmg", "CoinDrop", "SpawnRate", "EnemySpeed", "AutofireRate", "fireRange", "maxEnemies", "regenHP"};
+    int statOffset = int(SCR_H / 4.0) * 3.0;
+    int rowOffset = 80 + 5;
     int max_row = 4;
     int iCount = 0;
     for(std::list<std::string>::iterator it = statNames.begin(); it != statNames.end(); it++, iCount++){
-        statMap[(*it)] = new Stat(10 + (rowOffset * (iCount / max_row)), statOffset + ((iCount % max_row) * 20), 64, 16);
+        statMap[(*it)] = new Stat(10 + (rowOffset * (iCount / max_row)), statOffset + ((iCount % max_row) * 20), 80, 16);
     }
 }
 
@@ -578,12 +630,12 @@ void Game::targetEnemy(){
     double lowestDist = baseRange + (10 * statMap["fireRange"]->stat);
     for(std::vector<Enemy*>::iterator it = enemies.begin(); it != enemies.end(); it++){
         Enemy& E = (*(*it));
-        double xd = (E.x + (E.w / 2.0)) - (turretBaseRect.x + (turretBaseRect.w / 2.0));
-        double yd = (turretBaseRect.y + (turretBaseRect.h / 2.0)) - (E.y + (E.h / 2.0));
-        double dist = sqrt((xd*xd)+(yd*yd));
+        double xd = (E.x + (E.w / 2.0)) - (LEVEL_W / 2.0);
+        double yd = (LEVEL_H / 2.0) - (E.y + (E.h / 2.0));
+        double dist = std::abs(sqrt((xd*xd)+(yd*yd)));
         if(dist < lowestDist){
             lowestDist = dist;
-            turretAngle = sin(xd/yd) * 45.0;
+            turretAngle = (std::atan2(-yd, xd) * (180.0 / 3.141)) + 90.0;
             targettedEnemy = (*it);
         }
     }
@@ -595,15 +647,44 @@ int Game::spawnNewEnemy(){
         E->id = Enemy::getID();
         E->maxHp = 5 * (1.0 + ((currentWave - 1) / 2.0));
         E->hp = 5 * (1.0 + ((currentWave - 1) / 2.0));
-        E->x = (std::rand() % int(SCR_W * 2.0)) - (SCR_W);
-        E->y = -32.0;
+        double newAngle = (((rand() % 36000) / 100.0)) * (3.141 / 180.0);
+        double spawnRadius = LEVEL_W / 4.0;
+        E->x = (int(LEVEL_W / 2.0) - 8) + (spawnRadius * std::cos(newAngle));
+        E->y = (int(LEVEL_H / 2.0) - 8) + (spawnRadius * std::sin(newAngle));
         E->w = 16.0;
         E->h = 16.0;
         E->spd = 16.0;
         E->coinDrop = 1 + (currentWave / 2.0);
         E->atkDelay = 1000.0;
-        E->dmg = 1;
+        E->dmg = 1 + ((currentWave / 2.5) - 2.5);
         E->aspd = 0.5;
+
+        if((currentWave % 10) == 0){
+            E->type = Enemy::Types::tRegular;
+            E->w *= 8;
+            E->h *= 8;
+            E->maxHp *= 25;
+            E->hp *= 25;
+            E->spd *= 0.5;
+            E->dmg *= 10;
+        }else{
+            /*
+            double _fastP = 5.0;
+            double _heavyP = 1.0;
+            double _type = rand() % 100;
+            if(_type  < _fastP){
+                E->type = Enemy::Types::tFast;
+                E->spd *= 2;
+            }else if(_type < (_fastP + _heavyP)){
+                E->type = Enemy::Types::tHeavy;
+                E->w *= 2;
+                E->h *= 2;
+                E->maxHp *= 2;
+                E->hp *= 2;
+                E->spd *= 0.75;
+            }else{
+                E->type = Enemy::Types::tRegular;
+            }*/
 
         if(((currentWave - 3) % 10) == 0){
             E->type = Enemy::Types::tFast;
@@ -614,8 +695,11 @@ int Game::spawnNewEnemy(){
             E->h *= 2;
             E->maxHp *= 2;
             E->hp *= 2;
+            E->spd *= 0.75;
         }else{
             E->type = Enemy::Types::tRegular;
+        }
+
         }
 
         enemies.push_back(E);
@@ -636,7 +720,7 @@ Game game;
 void Game::newStatBtn(Stat* _stat, int _texID){
     _stat->btnID = statBtnID;
     buttons.push_back(new Button(_stat->btnTexRect, &statUpgF, this, _stat));
-    _stat->textTex = renderText(std::to_string(_stat->level) + ": " + std::to_string(_stat->upgradeCost), {0,0,0}, renderer, font);
+    _stat->textTex = renderText(" " + std::to_string(_stat->level) + " : " + std::to_string(_stat->upgradeCost), {0,0,0}, renderer, font);
     _stat->iconID = _texID;
 }
 
@@ -653,8 +737,14 @@ void Game::updateCoins(int _coins){
 void Game::updateWaves(){
     nextWaveCounter++;
     if(nextWaveCounter >= nextWaveReq){
-        //buttons.push_back(new Button(nextWaveRect, nextWaveBtnF, this));
         currentWave++;
+        if((currentWave % 5) == 0){
+            if((currentWave % 10) == 0){
+                nextWaveReq = 1;
+            }else{
+                nextWaveReq = (1 + (currentWave / 5)) * 5;
+            }
+        }
         nextWaveCounter = 0;
     }
     std::string tStr = "Wave " + std::to_string(currentWave) + " (" + std::to_string(nextWaveCounter) + " / " + std::to_string(nextWaveReq) + ")";
@@ -697,6 +787,12 @@ void Game::drawTexture(int _id, SDL_Rect _dest){
     }
 }
 
+void Game::drawTexture(int _id, SDL_Rect _dest, double _angle){
+    if(_id < int(textures.size())){
+        SDL_RenderCopyEx(renderer, textures[_id], NULL, &_dest, _angle, NULL, SDL_FLIP_NONE);
+    }
+}
+
 void DrawCircle(SDL_Renderer* renderer, int32_t centreX, int32_t centreY, int32_t radius){
     const int32_t diameter = (radius * 2);
 
@@ -735,7 +831,7 @@ void Game::drawTurret(int _id, SDL_Rect _dest, double angle){
         SDL_RenderCopyEx(renderer, textures[_id], NULL, &_dest, angle, &turretPivotOffset, SDL_FLIP_NONE);
     }
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    DrawCircle(renderer, turretBaseRect.x  + (turretBaseRect.w / 2.0), turretBaseRect.y + (turretBaseRect.h / 2.0), baseRange + (statMap["fireRange"]->stat * 10));
+    DrawCircle(renderer, LEVEL_W / 2.0, LEVEL_H / 2.0, baseRange + (statMap["fireRange"]->stat * 10));
 }
 
 void Game::statUpgF(Stat& _stat){
@@ -745,7 +841,27 @@ void Game::statUpgF(Stat& _stat){
         SDL_DestroyTexture(_stat.textTex);
         _stat.level++;
         _stat.stat++;
-        _stat.textTex = renderText(std::to_string(_stat.level) + ": " + std::to_string(_stat.upgradeCost), {0,0,0}, renderer, font);
+        std::string _tLvl;
+        std::string _tUpgC;
+        if((_stat.level / 1000.0) > 1){
+            if((_stat.level / 1000000.0) > 1){
+                _tLvl = std::to_string(_stat.level / 1000000) = "M";
+            }else{
+                _tLvl = std::to_string(_stat.level / 1000) + "K";
+            }
+        }else{
+            _tLvl = std::to_string(_stat.level);
+        }
+        if((_stat.upgradeCost / 1000.0) > 1){
+            if((_stat.upgradeCost / 1000000.0) > 1){
+                _tUpgC = std::to_string(_stat.upgradeCost / 1000000) + "M";
+            }else{
+                _tUpgC = std::to_string(_stat.upgradeCost / 1000) + "K";
+            }
+        }else{
+            _tUpgC = std::to_string(_stat.upgradeCost);
+        }
+        _stat.textTex = renderText(_tLvl + ": " + _tUpgC, {0,0,0}, renderer, font);
     }
 }
 
@@ -790,9 +906,17 @@ bool Game::fireTurret(){
     return false;
 }
 
+int healDelay = 10000.0;
+int healTicker = healDelay;
 bool Game::update(double dTime){
     SDL_SetRenderDrawColor(renderer, 240, 240, 0, 255);
     SDL_RenderClear(renderer);
+    SDL_SetRenderTarget(renderer, LevelSurface);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 0);
+    SDL_SetRenderTarget(renderer, ScrSurface);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 240, 240, 0, 255);
 
     SDL_Event e;
 
@@ -804,6 +928,16 @@ bool Game::update(double dTime){
     if(fpsTicker < 0){
         fpsTicker = 1000.0 / fps;
         tick = true;
+    }
+    healTicker -= dTime;
+    if(healTicker < 0){
+        healTicker = healDelay;
+        double healAmt = (statMap["regenHP"]->stat * 0.25);
+        if((towerHp + healAmt) >= towerMaxHp){
+            towerHp = towerMaxHp;
+        }else{
+            towerHp += healAmt;
+        }
     }
     lClick = false;
 
@@ -818,13 +952,31 @@ bool Game::update(double dTime){
                         return true;
                         break;
                     case SDLK_LEFT:
-                        if(turretAngle > (-45.0)){
-                            turretAngle -= 5.0;
+                        if(ViewAngle > (-360.0)){
+                            ViewAngle -= 90.0;
+                        }else{
+                            ViewAngle = 0.0;
                         }
                         break;
                     case SDLK_RIGHT:
-                        if(turretAngle < (45.0)){
-                            turretAngle += 5.0;
+                        if(ViewAngle < (360.0)){
+                            ViewAngle += 90.0;
+                        }else{
+                            ViewAngle = 0.0;
+                        }
+                        break;
+                    case SDLK_UP:
+                        if(viewScale > 0.5){
+                            viewScale -= 0.1;
+                        }else{
+                            viewScale = 0.5;
+                        }
+                        break;
+                    case SDLK_DOWN:
+                        if(viewScale < 2.0){
+                            viewScale += 0.1;
+                        }else{
+                            viewScale = 2.0;
                         }
                         break;
                     case SDLK_RETURN:
@@ -852,6 +1004,23 @@ bool Game::update(double dTime){
                     lClick = false;
                 }
                 break;
+            case SDL_MOUSEWHEEL:
+                if(e.wheel.y > 0){
+                    if(viewScale < 2.0){
+                        viewScale += e.wheel.y * 0.1;
+                    }
+                    if(viewScale > 2.0){
+                        viewScale = 2.0;
+                    }
+                }else if(e.wheel.y < 0){
+                    if(viewScale > 0.5){
+                        viewScale += e.wheel.y * 0.1;
+                    }
+                    if(viewScale < 0.5){
+                        viewScale = 0.5;
+                    }
+                }
+                break;
         }
     }// poll &e
 
@@ -861,16 +1030,32 @@ bool Game::update(double dTime){
         destroyTextures();
         destroyStats();
         init();
-        font = TTF_OpenFont("slkscr.ttf", fontSize);
         logoID = newTexture("TowerDefence.png");
         ngbID = newTexture("NewGame.png");
         buttons.push_back(new Button(ngbRect, newGameBtn));
-        towerHp = 100;
-        towerMaxHp = 100;
+        towerHp = 250;
+        towerMaxHp = 250;
         updateState(gsMainMenu);
     }else if(state == gsMainMenu){
+        SDL_SetRenderTarget(renderer, ScrSurface);
         drawTexture(logoID, logoRect);
         drawTexture(ngbID, ngbRect);
+
+        SDL_Rect scoreRect = {(SCR_W / 2.0) - (SCR_W / 8.0), (SCR_H / 16.0) * 7.0, SCR_W / 4.0, (SCR_H / 32.0)};
+        SDL_RenderCopy(renderer, hiscoreTexs[0], NULL, &scoreRect);
+        scoreRect.y = (SCR_H / 16.0) * 8.0;
+        SDL_RenderCopy(renderer, hiscoreTexs[1], NULL, &scoreRect);
+        scoreRect.y = (SCR_H / 16.0) * 9.0;
+        scoreRect.x += (scoreRect.w * 0.1);
+        scoreRect.w *= 0.8;
+        scoreRect.h *= 0.9;
+        SDL_RenderCopy(renderer, hiscoreTexs[2], NULL, &scoreRect);
+        scoreRect.y = (SCR_H / 16.0) * 10.0;
+        scoreRect.x += (scoreRect.w * 0.1);
+        scoreRect.w *= 0.8;
+        scoreRect.h *= 0.9;
+        SDL_RenderCopy(renderer, hiscoreTexs[3], NULL, &scoreRect);
+        SDL_SetRenderTarget(renderer, 0);
     }else if(state == gsGameStart){
         std::string path = getPath();
         nextWaveBtnID = newTexture("nextWave.png");
@@ -906,6 +1091,7 @@ bool Game::update(double dTime){
         newStatBtn(statMap["AutofireRate"], "autofireIcon.png");
         newStatBtn(statMap["fireRange"], "rangeIcon.png");
         newStatBtn(statMap["maxEnemies"], "maxEnemyIcon.png");
+        newStatBtn(statMap["regenHP"], "regenHPIcon.png");
 
         muzzleAnim = new Anim{30.0};
         muzzleAnim->addFrameTx(textures[muzzleFlashID]);
@@ -919,6 +1105,7 @@ bool Game::update(double dTime){
 
         updateState(gsGame);
     }else if(state == gsGame){
+        SDL_SetRenderTarget(renderer, LevelSurface);
         drawTexture(turretBaseID, turretBaseRect);
         drawTurret(turretCannonID, turretCannonRect, turretAngle);
 
@@ -937,8 +1124,6 @@ bool Game::update(double dTime){
                 autoFireTicker = autoFireDelay * (1.0 / statMap["AutofireRate"]->stat);
             }
         }
-        SDL_Rect hpRect = {int(SCR_W / 2.0) - 32, SCR_H - 10, int(64 * double(autoFireTicker / autoFireDelay)), 4};
-        drawTexture(hpBarID, hpRect);
 
         if((lClick) && !(gameOver)){
             fireTurret();
@@ -960,7 +1145,7 @@ bool Game::update(double dTime){
                 if(!gameOver){
                     (*it)->update(dTime, statMap["EnemySpeed"]->stat);
                     if((*it)->isAttacking){
-                        SDL_Rect pos = {(*it)->x + ((*it)->w / 2.0)- 32, (*it)->y + (*it)->w - 32, 64, 64};
+                        SDL_Rect pos = {(*it)->x + ((*it)->w / 2.0)- 32, (*it)->y + ((*it)->h - 32), 64, 64};
                         SDL_Point offset = {0,0};
                         animInstances.push_back(spawnAnim(impactAnim, pos, 0.0, offset, false, 0.5));
                         towerHp -= (*it)->dmg;
@@ -975,21 +1160,21 @@ bool Game::update(double dTime){
                 SDL_Rect enemyRect = {int((*it)->x), int((*it)->y), int((*it)->w), int((*it)->h)};
                 switch((*it)->type){
                     case Enemy::Types::tFast:
-                        drawTexture(blueEnemyID, enemyRect);
+                        drawTexture(blueEnemyID, enemyRect, 360.0 - ViewAngle);
                         break;
                     case Enemy::Types::tHeavy:
-                        drawTexture(greenEnemyID, enemyRect);
+                        drawTexture(greenEnemyID, enemyRect, 360.0 - ViewAngle);
                         break;
                     case Enemy::Types::tRegular:
                     default:
-                        drawTexture(redEnemyID, enemyRect);
+                        drawTexture(redEnemyID, enemyRect, 360.0 - ViewAngle);
                         break;
                 }
                 SDL_Rect hpRect = enemyRect;
                 hpRect.y -= 8;
                 hpRect.h = 4;
                 hpRect.w = int(hpRect.w * double(double((*it)->hp) / double((*it)->maxHp)));
-                drawTexture(hpBarID, hpRect);
+                drawTexture(hpBarID, hpRect, 360.0 - ViewAngle);
                 it++;
             }
         }
@@ -1004,6 +1189,11 @@ bool Game::update(double dTime){
                 it++;
             }
         }
+
+        SDL_SetRenderTarget(renderer, ScrSurface);
+
+        SDL_Rect hpRect = {int(SCR_W / 2.0) - 32, SCR_H - 10, int(64 * double(autoFireTicker / autoFireDelay)), 4};
+        drawTexture(hpBarID, hpRect);
 
         drawUpgBtns();
 
@@ -1043,13 +1233,24 @@ bool Game::update(double dTime){
         }
     }
 
+    SDL_SetRenderTarget(renderer, 0);
+    SDL_Point _p = {LEVEL_W / 2.0, LEVEL_H / 2.0};
+    SDL_Rect scaledViewRect = ViewRect;
+    scaledViewRect.w *= viewScale;
+    scaledViewRect.h *= viewScale;
+    scaledViewRect.x = _p.x - (scaledViewRect.w / 2.0);
+    scaledViewRect.y = _p.y - (scaledViewRect.h / 2.0);
+    SDL_RenderCopyEx(renderer, LevelSurface, &scaledViewRect, &ScrnRect, ViewAngle, NULL, SDL_FLIP_NONE);
+    SDL_RenderCopyEx(renderer, ScrSurface, NULL, &ScrnRect, 0.0, NULL, SDL_FLIP_NONE);
     SDL_RenderPresent(renderer);
 
     return false;
 }
 
-void Game::setRenderer(SDL_Renderer* _renderer){
+void Game::setRenderer(SDL_Renderer* _renderer, SDL_Texture* _ScrSurface, SDL_Texture* _LevelSurface){
     renderer = _renderer;
+    ScrSurface = _ScrSurface;
+    LevelSurface = _LevelSurface;
 }
 
 void Game::updateState(GState newState){
@@ -1059,7 +1260,8 @@ void Game::updateState(GState newState){
 int main(int argc, char* argv[]){
     std::srand(time(nullptr));
     SDL_Window* window = NULL;
-    SDL_Surface* ScrSurface = NULL;
+    SDL_Texture* ScrSurface;
+    SDL_Texture* LevelSurface;
     SDL_Renderer* renderer;
 
     bool initSuccess = true;
@@ -1075,9 +1277,14 @@ int main(int argc, char* argv[]){
             std::cout << "Error - Create window\n";
             initSuccess = false;
         }else{
-            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-            SDL_RenderClear(renderer);
-            SDL_RenderPresent(renderer);
+            if(FULLSCREEN){
+                SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
+            }
+            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
+            ScrSurface = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, SCR_W, SCR_H);
+            SDL_SetTextureBlendMode(ScrSurface, SDL_BLENDMODE_BLEND);
+            LevelSurface = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LEVEL_W, LEVEL_H);
+            SDL_SetTextureBlendMode(LevelSurface, SDL_BLENDMODE_BLEND);
         }
     }
 
@@ -1088,14 +1295,14 @@ int main(int argc, char* argv[]){
             double div = double(dm.w) / double(dm.h);
             if(div > (1.7) && div < (1.8)){
                 aspect = r16x9;
-            }else if(div = (1.5)){
+            }else if(div == (1.5)){
                 aspect = r3x2;
             }
             if(FULLSCREEN == true){
 
             }
         }
-        game.setRenderer(renderer);
+        game.setRenderer(renderer, ScrSurface, LevelSurface);
         bool quit = false;
 
         Uint64 dTimeNow = SDL_GetPerformanceCounter();
