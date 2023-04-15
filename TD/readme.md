@@ -26,6 +26,12 @@ The aim of this project is to work at quickly creating and implementing UI and g
 | fireRange | <img src="rangeIcon.png" width="16" height="16"> | Increase tower firing range. |
 | maxEnemies | <img src="maxEnemyIcon.png" width="16" height="16"> | Increase max enemies alive at once. |
 | regenHP | <img src="regenHPIcon.png" width="16" height="16"> | Increase HP Regen. |
+### <p align="center">Turrets</p>
+| Type | Image | Description |
+|:---|:---:|:---|
+| AutoGun | <img src="td_basic_towers/MG3.png" height="32"> | Fast, Cheap, Reliable. |
+| Rocket | <img src="td_basic_towers/Missile_Launcher.png" height="32" | AoE, Increased Ranged. |
+| Laser | <img src="td_basic_towers/Cannon.png" height="32"> | Slow, Powerful, Expensive. |
 
 ## <p align="center">Build</p>
 Link + compile with SDL2
