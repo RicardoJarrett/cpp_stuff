@@ -30,7 +30,7 @@ The aim of this project is to work at quickly creating and implementing UI and g
 | Type | Image | Description |
 |:---|:---:|:---|
 | AutoGun | <img src="td_basic_towers/MG3.png" height="32"> | Fast, Cheap, Reliable. |
-| Rocket | <img src="td_basic_towers/Missile_Launcher.png" height="32" | AoE, Increased Ranged. |
+| Rocket | <img src="td_basic_towers/Missile_Launcher.png" height="32"> | AoE, Increased Ranged. |
 | Laser | <img src="td_basic_towers/Cannon.png" height="32"> | Slow, Powerful, Expensive. |
 
 ## <p align="center">Build</p>
