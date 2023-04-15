@@ -21,7 +21,7 @@ int SCR_W = 1280;//480;
 int SCR_H = 720;//360;
 int LEVEL_W = 4096;
 int LEVEL_H = 4096;
-bool FULLSCREEN = true;
+bool FULLSCREEN = false;
 
 enum AspectRatio{
     r16x9,
@@ -211,7 +211,8 @@ public:
     enum Types{
         tRegular,
         tFast,
-        tHeavy
+        tHeavy,
+        tBoss
     };
     double x, y, w, h, spd;
     int hp, maxHp, id, coinDrop, dmg;
@@ -225,6 +226,7 @@ public:
 
     static int getID();
     static void clearID(int _id);
+    static bool checkID(int _id);
     static void initEnemies(int _maxEnemies);
     void update(double dTime, int _spdMult);
     bool takeDamage(int _dmg);
@@ -240,6 +242,18 @@ int Enemy::getID(){
         ids.pop();
     }
     return retID;
+}
+
+bool Enemy::checkID(int _id){
+    std::queue<int> tQ = ids;
+    while(!tQ.empty()){
+        if(tQ.front() == _id){
+            return false;
+        }else{
+            tQ.pop();
+        }
+    }
+    return true;
 }
 
 void Enemy::initEnemies(int _maxEnemies){
@@ -266,8 +280,8 @@ bool Enemy::takeDamage(int _dmg){
 void Enemy::update(double dTime, int _spdMult){
     isAttacking = false;
     if(!attackState){
-        int dx = (LEVEL_W / 2.0) - x;
-        int dy = (LEVEL_H / 2.0) - y;
+        int dx = (LEVEL_W / 2.0) - (x + (w / 2.0));
+        int dy = (LEVEL_H / 2.0) - (y + (h / 2.0));
         double dist = std::sqrt((dx*dx)+(dy*dy));
         double dxN = dx / dist;
         double dyN = dy / dist;
@@ -328,6 +342,78 @@ enum GState{
     gsClose
 };
 
+
+struct Turret{
+    enum turretType{
+        tAutoGun=0,
+        tRocket=1,
+        tLaser=2
+    };
+    turretType type;
+    double angle;
+    double range;
+    double autoFireDelay;
+    double autoFireTicker;
+
+    Enemy* target;
+    int targetID;
+    Anim* muzzleAnim;
+
+    SDL_Rect baseRect;
+    SDL_Rect cannonRect;
+    SDL_Point pivotOffset;
+
+    Turret(double _x, double _y, turretType _type, double _fireDelay);
+    ~Turret();
+    void setAngle(double _angle);
+    void setTarget(Enemy* _target);
+    void moveTurret(int _x, int _y);
+};
+
+void Turret::moveTurret(int _x, int _y){
+    baseRect.x = _x;
+    baseRect.y = _y;
+    baseRect.w = 64;
+    baseRect.h = 64;
+
+    cannonRect = {baseRect.x + 20, baseRect.y - 20, 24, 64};
+}
+
+void Turret::setTarget(Enemy* _target){
+    if((_target == nullptr) || (Enemy::checkID(_target->id) == false)){
+        target = nullptr;
+        targetID = -1;
+    }else{
+        target = _target;
+        targetID = _target->id;
+    }
+}
+
+void Turret::setAngle(double _angle){
+    angle = _angle;
+}
+
+Turret::~Turret(){
+    target = nullptr;
+    muzzleAnim = nullptr;
+}
+
+Turret::Turret(double _x, double _y, turretType _type, double _fireDelay=500.0) : type(_type), autoFireDelay(_fireDelay){
+    baseRect.x = _x;
+    baseRect.y = _y;
+    baseRect.w = 64;
+    baseRect.h = 64;
+
+    cannonRect = {baseRect.x + 20, baseRect.y - 20, 24, 64};
+    pivotOffset = {12, 52};
+    autoFireTicker = 0.0;
+    range = 220.0;
+    angle = 0.0;
+    target = nullptr;
+    targetID = -1;
+    muzzleAnim = nullptr;
+}
+
 class Game{
     SDL_Renderer* renderer;
     SDL_Texture* ScrSurface;
@@ -367,10 +453,10 @@ class Game{
     int hpBarID;
     int hpBarBgID;
     int turretBaseID;
-    int turretCannonID;
-    double turretAngle;
-    Enemy* targettedEnemy;
-    double baseRange;
+    int turretCannonIDs[3];
+    //double turretAngle;
+    //Enemy* targettedEnemy;
+    //double baseRange;
 
     Anim* muzzleAnim;
     int muzzleFlashID;
@@ -392,6 +478,7 @@ class Game{
     int currentWave;
     int nextWaveCounter;
     int nextWaveReq;
+
     SDL_Texture* WaveTextTx;
     SDL_Rect WaveTextRect;
 
@@ -399,9 +486,9 @@ class Game{
     SDL_Rect ngbRect;
     SDL_Rect nextWaveRect;
 
-    SDL_Rect turretBaseRect;
-    SDL_Rect turretCannonRect;
-    SDL_Point turretPivotOffset;
+    //SDL_Rect turretBaseRect;
+    //SDL_Rect turretCannonRect;
+    //SDL_Point turretPivotOffset;
 
     SDL_Rect circleFenceRect;
 
@@ -414,19 +501,20 @@ class Game{
 
     std::map<std::string, Stat*> statMap;
     std::vector<Stat*> stats;
+    std::vector<Turret*> turrets;
 
     int MAX_ENEMIES;
     double spawnDelay;
     double spawnTicker;
     double fireDelay;
     double fireTicker;
-    double autoFireDelay;
-    double autoFireTicker;
+    //double autoFireDelay;
+    //double autoFireTicker;
 
     void initStats();
 
-    void targetEnemy();
-    bool fireTurret();
+    void targetEnemy(int _tid);
+    void fireTurret(int _turretID);
 
     void statUpgF(Stat& _stat);
     void drawUpgBtns();
@@ -450,12 +538,13 @@ public:
     void destroyTextures();
     void destroyEnemies();
     void destroyStats();
+    void destroyTurrets();
     void init();
     void updateState(GState newState);
     int newTexture(std::string _path);
     void drawTexture(int _id, SDL_Rect _dest);
     void drawTexture(int _id, SDL_Rect _dest, double _angle);
-    void drawTurret(int _id, SDL_Rect _dest, double angle);
+    void drawTurret(int _id, SDL_Rect _dest, double _angle, SDL_Point _offset, double _range);
     int spawnNewEnemy();
     AnimInst* spawnAnim(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed);
 };
@@ -481,16 +570,15 @@ Game::Game(){
     ngbRect = {(SCR_W / 2.0) - 128, (SCR_H / 4.0) * 3.0, 256, 64};
     nextWaveRect = {(SCR_W / 2.0) - 64, SCR_H / 0.75, 128, 32};
 
-    turretBaseRect = {int(LEVEL_W / 2.0) - 32, int(LEVEL_H / 2.0) - 32, 64, 64};
-    turretCannonRect = {turretBaseRect.x + 20, turretBaseRect.y - 20, 24, 64};
-
-    turretPivotOffset = {12, 52};
+    //turretBaseRect = {int(LEVEL_W / 2.0) - 32, int(LEVEL_H / 2.0) - 32, 64, 64};
+    //turretCannonRect = {turretBaseRect.x + 20, turretBaseRect.y - 20, 24, 64};
+    //turretPivotOffset = {12, 52};
 
     SDL_GetMouseState(&mouseX, &mouseY);
 
     MAX_ENEMIES = 100;
 
-    baseRange = 220.0;
+    //baseRange = 220.0;
     circleFenceRect = {int(LEVEL_W / 2.0) - 128, int(LEVEL_H / 2.0) - 128, 256, 256};
 
     fontSize = 8;
@@ -534,7 +622,7 @@ void Game::init(){
     font = nullptr;
     gameOver = false;
 
-    turretAngle = 0.0;
+    //turretAngle = 0.0;
     muzzleAnim = nullptr;
     muzzleFlashID = -1;
     impactAnim = nullptr;
@@ -543,7 +631,7 @@ void Game::init(){
     impactAnimIDs[2] = -1;
     impactAnimIDs[3] = -1;
 
-    targettedEnemy = nullptr;
+    //targettedEnemy = nullptr;
     lClick = false;
     clickBounce = 0.0;
     logoID = -1;
@@ -555,13 +643,13 @@ void Game::init(){
     blueEnemyID = -1;
     greenEnemyID = -1;
 
-    spawnDelay = 2000.0;
-    autoFireDelay = 500.0;
+    spawnDelay = 1000.0;
+    //autoFireDelay = 500.0;
     spawnTicker = 0.0;
-    autoFireTicker = 0.0;
+    //autoFireTicker = 0.0;
 
-    towerHp = 100.0;
-    towerMaxHp = 100.0;
+    towerHp = 250.0;
+    towerMaxHp = 250.0;
     hpBarID = -1;
     hpBarBgID = -1;
 
@@ -607,6 +695,13 @@ void Game::destroyButtons(){
     buttons.clear();
 }
 
+void Game::destroyTurrets(){
+    for(std::vector<Turret*>::iterator it = turrets.begin(); it != turrets.end(); it++){
+        delete (*it);
+    }
+    turrets.clear();
+}
+
 void Game::destroyTextures(){
     for(std::vector<SDL_Texture*>::iterator it = textures.begin(); it != textures.end(); it++){
         SDL_Texture* T = (*it);
@@ -626,84 +721,75 @@ void Game::destroyEnemies(){
     enemies.clear();
 }
 
-void Game::targetEnemy(){
-    double lowestDist = baseRange + (10 * statMap["fireRange"]->stat);
+void Game::targetEnemy(int _tid){
+    double lowestDist = turrets[_tid]->range + (10 * statMap["fireRange"]->stat);
     for(std::vector<Enemy*>::iterator it = enemies.begin(); it != enemies.end(); it++){
         Enemy& E = (*(*it));
-        double xd = (E.x + (E.w / 2.0)) - (LEVEL_W / 2.0);
-        double yd = (LEVEL_H / 2.0) - (E.y + (E.h / 2.0));
+        double xd = (E.x + (E.w / 2.0)) - (turrets[_tid]->baseRect.x + (turrets[_tid]->baseRect.w / 2.0));
+        double yd = (turrets[_tid]->baseRect.y + (turrets[_tid]->baseRect.h / 2.0)) - (E.y + (E.h / 2.0));
         double dist = std::abs(sqrt((xd*xd)+(yd*yd)));
         if(dist < lowestDist){
             lowestDist = dist;
-            turretAngle = (std::atan2(-yd, xd) * (180.0 / 3.141)) + 90.0;
-            targettedEnemy = (*it);
+            double newAngle = (std::atan2(-yd, xd) * (180.0 / 3.141)) + 90.0;
+            turrets[_tid]->angle = newAngle;
+            turrets[_tid]->target = (*it);
+            turrets[_tid]->targetID = (*it)->id;
         }
     }
 }
 
+double nAngle = 0.0;
+bool ENEMY_SPAWN_TEST_ANGLE = false;
+double _pi_over_180 = (3.141 / 180.0);
 int Game::spawnNewEnemy(){
     if(int(enemies.size()) < (10 + (statMap["maxEnemies"]->stat * 5)) && (int(enemies.size()) < MAX_ENEMIES)){
-        Enemy* E = new Enemy();
-        E->id = Enemy::getID();
-        E->maxHp = 5 * (1.0 + ((currentWave - 1) / 2.0));
-        E->hp = 5 * (1.0 + ((currentWave - 1) / 2.0));
-        double newAngle = (((rand() % 36000) / 100.0)) * (3.141 / 180.0);
+        Enemy& E = *(new Enemy());
+        E.id = Enemy::getID();
+        E.maxHp = 5 * (1.0 + ((currentWave - 1) / 2.0));
+        E.hp = 5 * (1.0 + ((currentWave - 1) / 2.0));
+        double newAngle = ((rand() % 360) * _pi_over_180);
+        if(ENEMY_SPAWN_TEST_ANGLE){
+            newAngle = nAngle * _pi_over_180;
+            nAngle += 18.0;
+        }
         double spawnRadius = LEVEL_W / 4.0;
-        E->x = (int(LEVEL_W / 2.0) - 8) + (spawnRadius * std::cos(newAngle));
-        E->y = (int(LEVEL_H / 2.0) - 8) + (spawnRadius * std::sin(newAngle));
-        E->w = 16.0;
-        E->h = 16.0;
-        E->spd = 16.0;
-        E->coinDrop = 1 + (currentWave / 2.0);
-        E->atkDelay = 1000.0;
-        E->dmg = 1 + ((currentWave / 2.5) - 2.5);
-        E->aspd = 0.5;
+        E.x = (int(LEVEL_W / 2.0) - 8) + (spawnRadius * std::cos(newAngle));
+        E.y = (int(LEVEL_H / 2.0) - 8) + (spawnRadius * std::sin(newAngle));
+        E.w = 16.0;
+        E.h = 16.0;
+        E.spd = 32.0;
+        E.coinDrop = 1 + (currentWave / 2.0);
+        E.atkDelay = 1000.0;
+        E.dmg = 1 + (currentWave / 2.5);
+        E.aspd = 0.5;
 
         if((currentWave % 10) == 0){
-            E->type = Enemy::Types::tRegular;
-            E->w *= 8;
-            E->h *= 8;
-            E->maxHp *= 25;
-            E->hp *= 25;
-            E->spd *= 0.5;
-            E->dmg *= 10;
+            E.type = Enemy::Types::tBoss;
+            E.w *= 8;
+            E.h *= 8;
+            E.maxHp *= 25;
+            E.hp *= 25;
+            E.spd *= 0.5;
+            E.dmg *= 10;
+            E.coinDrop *= 50;
         }else{
-            /*
-            double _fastP = 5.0;
-            double _heavyP = 1.0;
-            double _type = rand() % 100;
-            if(_type  < _fastP){
-                E->type = Enemy::Types::tFast;
-                E->spd *= 2;
-            }else if(_type < (_fastP + _heavyP)){
-                E->type = Enemy::Types::tHeavy;
-                E->w *= 2;
-                E->h *= 2;
-                E->maxHp *= 2;
-                E->hp *= 2;
-                E->spd *= 0.75;
+            if(((currentWave - 3) % 10) == 0){
+                E.type = Enemy::Types::tFast;
+                E.spd *= 2;
+            }else if(((currentWave + 3) % 10) == 0){
+                E.type = Enemy::Types::tHeavy;
+                E.w *= 2;
+                E.h *= 2;
+                E.maxHp *= 2;
+                E.hp *= 2;
+                E.spd *= 0.75;
             }else{
-                E->type = Enemy::Types::tRegular;
-            }*/
-
-        if(((currentWave - 3) % 10) == 0){
-            E->type = Enemy::Types::tFast;
-            E->spd *= 2;
-        }else if(((currentWave + 3) % 10) == 0){
-            E->type = Enemy::Types::tHeavy;
-            E->w *= 2;
-            E->h *= 2;
-            E->maxHp *= 2;
-            E->hp *= 2;
-            E->spd *= 0.75;
-        }else{
-            E->type = Enemy::Types::tRegular;
+                E.type = Enemy::Types::tRegular;
+            }
         }
 
-        }
-
-        enemies.push_back(E);
-        return E->id;
+        enemies.push_back(&E);
+        return E.id;
     }
     return -1;
 }
@@ -713,6 +799,15 @@ Game::~Game(){
     destroyTextures();
     destroyEnemies();
     destroyStats();
+    destroyTurrets();
+    renderer = nullptr;
+    ScrSurface = nullptr;
+    LevelSurface = nullptr;
+    font = nullptr;
+    muzzleAnim = nullptr;
+    impactAnim = nullptr;
+    CoinTextTx = nullptr;
+    WaveTextTx = nullptr;
 }
 
 Game game;
@@ -738,12 +833,11 @@ void Game::updateWaves(){
     nextWaveCounter++;
     if(nextWaveCounter >= nextWaveReq){
         currentWave++;
-        if((currentWave % 5) == 0){
-            if((currentWave % 10) == 0){
-                nextWaveReq = 1;
-            }else{
-                nextWaveReq = (1 + (currentWave / 5)) * 5;
-            }
+        if((currentWave % 10) == 0){
+            nextWaveReq = 1;
+        }
+        if(((currentWave - 1) % 5) == 0){
+            nextWaveReq = (1 + (currentWave / 5)) * 5;
         }
         nextWaveCounter = 0;
     }
@@ -826,12 +920,12 @@ void DrawCircle(SDL_Renderer* renderer, int32_t centreX, int32_t centreY, int32_
     }
 }
 
-void Game::drawTurret(int _id, SDL_Rect _dest, double angle){
+void Game::drawTurret(int _id, SDL_Rect _dest, double _angle, SDL_Point _offset, double _range){
     if(_id < int(textures.size())){
-        SDL_RenderCopyEx(renderer, textures[_id], NULL, &_dest, angle, &turretPivotOffset, SDL_FLIP_NONE);
+        SDL_RenderCopyEx(renderer, textures[_id], NULL, &_dest, _angle, &_offset, SDL_FLIP_NONE);
     }
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    DrawCircle(renderer, LEVEL_W / 2.0, LEVEL_H / 2.0, baseRange + (statMap["fireRange"]->stat * 10));
+    DrawCircle(renderer, _dest.x + (_dest.w / 2.0), _dest.y + 20 + (_dest.h / 2.0), _range + (statMap["fireRange"]->stat * 10));
 }
 
 void Game::statUpgF(Stat& _stat){
@@ -882,28 +976,15 @@ AnimInst* Game::spawnAnim(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _
     return _A;
 }
 
-bool Game::fireTurret(){
-    if(targettedEnemy != nullptr){
-        targettedEnemy->takeDamage(statMap["Dmg"]->stat);
-        SDL_Rect pos = {turretCannonRect.x - 4, turretCannonRect.y - 32, 32, 32};
-        SDL_Point offset = turretPivotOffset;
+void Game::fireTurret(int _turretID){
+    if((turrets[_turretID]->target != nullptr) && (Enemy::checkID(turrets[_turretID]->targetID) == true)){
+        turrets[_turretID]->target->takeDamage(statMap["Dmg"]->stat);
+        SDL_Rect pos = {turrets[_turretID]->cannonRect.x - 4, turrets[_turretID]->cannonRect.y - 32, 32, 32};
+        SDL_Point offset = turrets[_turretID]->pivotOffset;
         offset.x += 4;
         offset.y += 32;
-        animInstances.push_back(spawnAnim(muzzleAnim, pos, turretAngle, offset, false, 1.0));
-        return true;
-    }else{
-        targetEnemy();
-        if(targettedEnemy != nullptr){
-            targettedEnemy->takeDamage(statMap["Dmg"]->stat);
-            SDL_Rect pos = {turretCannonRect.x - 4, turretCannonRect.y - 32, 32, 32};
-            SDL_Point offset = turretPivotOffset;
-            offset.x += 4;
-            offset.y += 32;
-            animInstances.push_back(spawnAnim(muzzleAnim, pos, turretAngle, offset, false, 1.0));
-            return true;
-        }
+        animInstances.push_back(spawnAnim(muzzleAnim, pos, turrets[_turretID]->angle, offset, false, 1.0));
     }
-    return false;
 }
 
 int healDelay = 10000.0;
@@ -992,6 +1073,9 @@ bool Game::update(double dTime){
             case SDL_MOUSEBUTTONDOWN:
                 if(e.button.button == SDL_BUTTON_LEFT){
                     if(clickBounce <= 0.0){
+                        if(gameOver){
+                            updateState(gsInit);
+                        }
                         lClick = true;
                         clickBounce = 10.0;
                     }else{
@@ -1029,6 +1113,7 @@ bool Game::update(double dTime){
         destroyEnemies();
         destroyTextures();
         destroyStats();
+        destroyTurrets();
         init();
         logoID = newTexture("TowerDefence.png");
         ngbID = newTexture("NewGame.png");
@@ -1069,7 +1154,9 @@ bool Game::update(double dTime){
         hpBarBgID = newTexture("hpBar_bg.png");
         Enemy::initEnemies(MAX_ENEMIES);
         turretBaseID = newTexture("td_basic_towers\\Tower.png");
-        turretCannonID = newTexture("td_basic_towers\\Cannon.png");
+        turretCannonIDs[0] = newTexture("td_basic_towers\\Cannon.png");
+        turretCannonIDs[1] = newTexture("td_basic_towers\\Missile_Launcher.png");
+        turretCannonIDs[2] = newTexture("td_basic_towers\\MG3.png");
         circleFenceID = newTexture("circle_fence.png");
         muzzleFlashID = newTexture("MuzzleFlash.png");
 
@@ -1103,11 +1190,60 @@ bool Game::update(double dTime){
         impactAnim->addFrameTx(textures[impactAnimIDs[2]]);
         impactAnim->addFrameTx(textures[impactAnimIDs[3]]);
 
+        int _turretCount = 3;
+        Turret* t;
+        if(_turretCount < 2){
+            t = new Turret(int(LEVEL_W / 2.0) - 32, int(LEVEL_H / 2.0) - 32, Turret::turretType::tAutoGun);
+            turrets.push_back(t);
+        }else{
+            int _radius = 64;
+            for(int i = 0; i < _turretCount; i++){
+                double _angle;
+                if(_turretCount % 2){
+                    _angle = ((360.0 / _turretCount) * (i + 1)) * _pi_over_180;
+                }else{
+                    _angle = (((360.0 / _turretCount) * (i + 1)) - 90) * _pi_over_180;
+                }
+                double _x = ((LEVEL_W / 2.0) + (_radius * std::cos(_angle))) - 32;
+                double _y = ((LEVEL_H / 2.0) + (_radius * std::sin(_angle))) - 32;
+                t = new Turret(_x, _y, static_cast<Turret::turretType>(i%3));
+                turrets.push_back(t);
+            }
+        }
+        t = nullptr;
+
         updateState(gsGame);
     }else if(state == gsGame){
         SDL_SetRenderTarget(renderer, LevelSurface);
-        drawTexture(turretBaseID, turretBaseRect);
-        drawTurret(turretCannonID, turretCannonRect, turretAngle);
+        int _tid = 0;
+
+        for(std::vector<Turret*>::iterator it = turrets.begin(); it != turrets.end(); it++, _tid++){
+            drawTexture(turretBaseID, (*it)->baseRect);
+            int tcID = 0;
+            switch((*it)->type){
+                case Turret::turretType::tRocket:
+                    tcID = 1;
+                    break;
+                case Turret::turretType::tLaser:
+                    tcID = 2;
+                    break;
+                case Turret::turretType::tAutoGun:
+                default:
+                    tcID = 0;
+                    break;
+            }
+
+            drawTurret(turretCannonIDs[tcID], (*it)->cannonRect, (*it)->angle, (*it)->pivotOffset, (*it)->range);
+            (*it)->autoFireTicker -= dTime;
+            if(((*it)->autoFireTicker <= 0) && !(gameOver)){
+                if(((*it)->targetID != -1) && (Enemy::checkID((*it)->targetID) == true)){
+                    fireTurret(_tid);
+                    (*it)->autoFireTicker = (*it)->autoFireDelay * (1.0 / statMap["AutofireRate"]->stat);
+                }else{
+                    targetEnemy(_tid);
+                }
+            }
+        }
 
         if(spawnTicker > 0.0){
             spawnTicker -= dTime;
@@ -1118,15 +1254,12 @@ bool Game::update(double dTime){
             }
         }
 
-        autoFireTicker -= dTime;
-        if((autoFireTicker <= 0) && !(gameOver)){
-            if(fireTurret()){
-                autoFireTicker = autoFireDelay * (1.0 / statMap["AutofireRate"]->stat);
-            }
-        }
-
         if((lClick) && !(gameOver)){
-            fireTurret();
+            if((turrets[0]->targetID == -1) || (Enemy::checkID(turrets[0]->targetID) == false)){
+                targetEnemy(0);
+            }else{
+                fireTurret(0);
+            }
         }
 
         drawTexture(circleFenceID, circleFenceRect);
@@ -1134,8 +1267,28 @@ bool Game::update(double dTime){
         for(std::vector<Enemy*>::iterator it = enemies.begin(); it != enemies.end();){
             if((*it)->dying){
                 updateCoins((*it)->coinDrop * (1.0 + (statMap["CoinDrop"]->stat - 1)));
-                if((*it) == targettedEnemy){
-                    targettedEnemy = nullptr;
+                for(std::vector<Turret*>::iterator turretIt = turrets.begin(); turretIt != turrets.end(); turretIt++){
+                    if((*it) == (*turretIt)->target){
+                        (*turretIt)->target = nullptr;
+                    }
+                }
+                if((*it)->type == Enemy::Types::tBoss){
+                    Turret* t;
+                    int _turretCount = int(turrets.size()) + 1;
+                    int _radius = 64;
+                    double _angle, _x, _y;
+                    for(int i = 0; i < (_turretCount-1); i++){
+                        _angle = (((360.0 / _turretCount) * (i + 1)) - 90) * _pi_over_180;
+                        _x = ((LEVEL_W / 2.0) + (_radius * std::cos(_angle))) - 32;
+                        _y = ((LEVEL_H / 2.0) + (_radius * std::sin(_angle))) - 32;
+                        turrets[i]->moveTurret(_x, _y);
+                    }
+                    _angle = 270.0 * _pi_over_180;
+                    _x = ((LEVEL_W / 2.0) + (_radius * std::cos(_angle))) - 32;
+                    _y = ((LEVEL_H / 2.0) + (_radius * std::sin(_angle))) - 32;
+                    t = new Turret(_x, _y, static_cast<Turret::turretType>(_turretCount%3));
+                    turrets.push_back(t);
+                    t = nullptr;
                 }
                 Enemy::clearID((*it)->id);
                 delete (*it);
@@ -1145,36 +1298,48 @@ bool Game::update(double dTime){
                 if(!gameOver){
                     (*it)->update(dTime, statMap["EnemySpeed"]->stat);
                     if((*it)->isAttacking){
-                        SDL_Rect pos = {(*it)->x + ((*it)->w / 2.0)- 32, (*it)->y + ((*it)->h - 32), 64, 64};
+                        double xd = (LEVEL_W / 2.0) - ((*it)->x + ((*it)->w / 2.0));
+                        double yd = ((*it)->y + ((*it)->h / 2.0)) - (LEVEL_H / 2.0);
+                        double _angle = (std::atan2(-yd, xd));
+                        double _x = ((*it)->x - 32) + ((*it)->h * 2.0 * std::cos(_angle));
+                        double _y = ((*it)->y - 32) + ((*it)->h * 2.0 * std::sin(_angle));
+                        SDL_Rect pos = {_x, _y, 64, 64};
                         SDL_Point offset = {0,0};
                         animInstances.push_back(spawnAnim(impactAnim, pos, 0.0, offset, false, 0.5));
                         towerHp -= (*it)->dmg;
+                        std::cout << towerHp << "\n";
                         if(towerHp <= 0){
                             gameOver = true;
                         }
                     }
                 }
-                if((*it) == targettedEnemy){
-                    DrawCircle(renderer, (*it)->x + ((*it)->w / 2.0), (*it)->y + ((*it)->h / 2.0), (*it)->w);
+                for(std::vector<Turret*>::iterator turretIt = turrets.begin(); turretIt != turrets.end(); turretIt++){
+                    if((*it) == (*turretIt)->target){
+                        DrawCircle(renderer, (*it)->x + ((*it)->w / 2.0), (*it)->y + ((*it)->h / 2.0), (*it)->w);
+                    }
                 }
+
                 SDL_Rect enemyRect = {int((*it)->x), int((*it)->y), int((*it)->w), int((*it)->h)};
+                double _angle = 360.0 - ViewAngle;
+                int _texID = -1;
                 switch((*it)->type){
                     case Enemy::Types::tFast:
-                        drawTexture(blueEnemyID, enemyRect, 360.0 - ViewAngle);
+                        _texID = blueEnemyID;
                         break;
                     case Enemy::Types::tHeavy:
-                        drawTexture(greenEnemyID, enemyRect, 360.0 - ViewAngle);
+                        _texID = greenEnemyID;
                         break;
                     case Enemy::Types::tRegular:
                     default:
-                        drawTexture(redEnemyID, enemyRect, 360.0 - ViewAngle);
+                        _texID = redEnemyID;
                         break;
                 }
+                drawTexture(_texID, enemyRect, _angle);
                 SDL_Rect hpRect = enemyRect;
                 hpRect.y -= 8;
                 hpRect.h = 4;
-                hpRect.w = int(hpRect.w * double(double((*it)->hp) / double((*it)->maxHp)));
-                drawTexture(hpBarID, hpRect, 360.0 - ViewAngle);
+                hpRect.w = int(hpRect.w * double((*it)->hp / (*it)->maxHp));
+                drawTexture(hpBarID, hpRect, _angle);
                 it++;
             }
         }
@@ -1192,9 +1357,6 @@ bool Game::update(double dTime){
 
         SDL_SetRenderTarget(renderer, ScrSurface);
 
-        SDL_Rect hpRect = {int(SCR_W / 2.0) - 32, SCR_H - 10, int(64 * double(autoFireTicker / autoFireDelay)), 4};
-        drawTexture(hpBarID, hpRect);
-
         drawUpgBtns();
 
         SDL_Rect towerhpRect = {int(SCR_W / 2.0) - 129, 39, 258, 18};
@@ -1210,6 +1372,7 @@ bool Game::update(double dTime){
         SDL_RenderCopy(renderer, CoinTextTx, NULL, &CoinTextRect);
 
         SDL_QueryTexture(WaveTextTx, NULL, NULL, &txw, &txh);
+        WaveTextRect.x = (int(SCR_W / 2.0) - txw);
         WaveTextRect.w = txw * 2;
         WaveTextRect.h = txh * 2;
         SDL_RenderCopy(renderer, WaveTextTx, NULL, &WaveTextRect);
@@ -1315,11 +1478,13 @@ int main(int argc, char* argv[]){
             deltaTime = (double)((dTimeNow - dTimePrev) * 1000 / (double)SDL_GetPerformanceFrequency());
 
             quit = game.update(deltaTime);
-
         }// !quit
     }//initsuccess
 
     SDL_DestroyWindow(window);
+    SDL_DestroyTexture(ScrSurface);
+    SDL_DestroyTexture(LevelSurface);
+    SDL_DestroyRenderer(renderer);
     SDL_Quit();
     return 0;
 }
