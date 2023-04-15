@@ -11,21 +11,21 @@ The aim of this project is to work at quickly creating and implementing UI and g
 ### <p align="center">Enemies</p>
 | Type | Image | Description |
 |:---|:---:|:---|
-| Regular | <img src="redEnemy.png" width="16" height="16"> | Approaches the base and attacks. Kill for coins. |
-| Fast | <img src="blueEnemy.png" width="16" height="16"> | Faster than a regular enemy. |
-| Heavy | <img src="greenEnemy.png" width="16" height="16"> | Tougher, with higher HP than a regular enemy. |
+| Regular | <img src="Walk_Sprites/EnemySample.png" height="32"> | Approaches the base and attacks. Kill for coins. |
+| Fast | <img src="blueEnemy.png" height="32"> | Faster than a regular enemy. |
+| Heavy | <img src="greenEnemy.png" height="32"> | Tougher, with higher HP than a regular enemy. |
 | Bosses |  | Bigger, Stronger, Zombier. |
 ### <p align="center">Upgrades</p>
 | Type | Image | Description |
 |:---|:---:|:---|
-| Dmg | <img src="bullet.png" width="16" height="16"> | Increases the damage of the tower by 1. |
-| CoinDrop | <img src="coin.png" width="16" height="16"> | Increases coins dropped by enemies by +100%. |
-| SpawnRate | <img src="Hourglass.png" width="16" height="16"> | Decrease enemy spawn delay. |
-| EnemySpeed | <img src="speedIcon.png" width="16" height="16"> | Increase enemy movement speed. |
-| AutofireRate | <img src="autofireIcon.png" width="16" height="16"> | Increase tower Autofire rate. |
-| fireRange | <img src="rangeIcon.png" width="16" height="16"> | Increase tower firing range. |
-| maxEnemies | <img src="maxEnemyIcon.png" width="16" height="16"> | Increase max enemies alive at once. |
-| regenHP | <img src="regenHPIcon.png" width="16" height="16"> | Increase HP Regen. |
+| Dmg | <img src="bullet.png" height="32"> | Increases the damage of the tower by 1. |
+| CoinDrop | <img src="coin.png" height="32"> | Increases coins dropped by enemies by +100%. |
+| SpawnRate | <img src="Hourglass.png" height="32"> | Decrease enemy spawn delay. |
+| EnemySpeed | <img src="speedIcon.png" height="32"> | Increase enemy movement speed. |
+| AutofireRate | <img src="autofireIcon.png" height="32"> | Increase tower Autofire rate. |
+| fireRange | <img src="rangeIcon.png" height="32"> | Increase tower firing range. |
+| maxEnemies | <img src="maxEnemyIcon.png" height="32"> | Increase max enemies alive at once. |
+| regenHP | <img src="regenHPIcon.png" height="32"> | Increase HP Regen. |
 ### <p align="center">Turrets</p>
 | Type | Image | Description |
 |:---|:---:|:---|
