@@ -1,21 +1,21 @@
-# TowerDefence - Readme
-## About
+# <p align="center">TowerDefence</p>
+## <p align="center">About</p>
 A simple Tower Defence game. Tap / Click to shoot the enemies.
 The aim of this project is to work at quickly creating and implementing UI and game ideas.
 
-## Images
-<img src="MainMenu.png" width="320" height="320"> <img src="gameplayImages/TD_13_04_2023.png" height="320">
-<img src="gameplayImages/TD_13_04_2023_boss.png" height="320">
+## <p align="center">Images</p>
+<p align="center"><img src="MainMenu.png" width="320" height="320"> <img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
+<p align="center"><img src="gameplayImages/TD_15_04_2023_multiTurret.png" height="320"></p>
 
-## Features
-### Enemies
+## <p align="center">Features</p>
+### <p align="center">Enemies</p>
 | Type | Image | Description |
 |:---|:---:|:---|
 | Regular | <img src="redEnemy.png" width="16" height="16"> | Approaches the base and attacks. Kill for coins. |
 | Fast | <img src="blueEnemy.png" width="16" height="16"> | Faster than a regular enemy. |
 | Heavy | <img src="greenEnemy.png" width="16" height="16"> | Tougher, with higher HP than a regular enemy. |
 | Bosses |  | Bigger, Stronger, Zombier. |
-### Upgrades
+### <p align="center">Upgrades</p>
 | Type | Image | Description |
 |:---|:---:|:---|
 | Dmg | <img src="bullet.png" width="16" height="16"> | Increases the damage of the tower by 1. |
@@ -27,8 +27,9 @@ The aim of this project is to work at quickly creating and implementing UI and g
 | maxEnemies | <img src="maxEnemyIcon.png" width="16" height="16"> | Increase max enemies alive at once. |
 | regenHP | <img src="regenHPIcon.png" width="16" height="16"> | Increase HP Regen. |
 
-## Build
+## <p align="center">Build</p>
 Link + compile with SDL2
 
-### Old Gameplay Images
-<img src="Gameplay_08042023.png" height="320"> <img src="Gameplay.png" width="320" height="320">
+### <p align="center">Old Gameplay Images</p>
+<p align="center"><img src="gameplayImages/TD_13_04_2023_boss.png" height="320">
+<p align="center"><img src="Gameplay_08042023.png" height="320"> <img src="Gameplay.png" width="320" height="320">
