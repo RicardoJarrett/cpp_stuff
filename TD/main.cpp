@@ -1154,9 +1154,9 @@ bool Game::update(double dTime){
         hpBarBgID = newTexture("hpBar_bg.png");
         Enemy::initEnemies(MAX_ENEMIES);
         turretBaseID = newTexture("td_basic_towers\\Tower.png");
-        turretCannonIDs[0] = newTexture("td_basic_towers\\Cannon.png");
+        turretCannonIDs[0] = newTexture("td_basic_towers\\MG3.png");
         turretCannonIDs[1] = newTexture("td_basic_towers\\Missile_Launcher.png");
-        turretCannonIDs[2] = newTexture("td_basic_towers\\MG3.png");
+        turretCannonIDs[2] = newTexture("td_basic_towers\\Cannon.png");
         circleFenceID = newTexture("circle_fence.png");
         muzzleFlashID = newTexture("MuzzleFlash.png");
 
