@@ -68,6 +68,52 @@ SDL_Texture* renderText(std::string _text, SDL_Color _col, SDL_Renderer* rendere
     return retTx;
 }
 
+double _180_over_pi = (180.0 / M_PI);
+double _pi_over_180 = (M_PI / 180.0);
+enum Dir{
+    dU=0,
+    dUR=1,
+    dR=2,
+    dDR=3,
+    dD=4,
+    dDL=5,
+    dL=6,
+    dUL=7
+};
+Dir RadToDir(double _angle){
+    double _angleD = _angle * _180_over_pi;
+    if(_angleD > 180){
+        _angleD -= 180.0;
+    }else{
+        _angleD += 180.0;
+    }
+    if(_angleD < 0){
+        _angleD += 360;
+    }
+    double _dirSplit = 22.5;
+    Dir _dir = Dir::dU;
+    if(_angleD < _dirSplit){
+        _dir = Dir::dU;
+    }else if(_angleD < (3*_dirSplit)){
+        _dir = Dir::dUR;
+    }else if(_angleD < (5*_dirSplit)){
+        _dir = Dir::dR;
+    }else if(_angleD < (7*_dirSplit)){
+        _dir = Dir::dDR;
+    }else if(_angleD < (9*_dirSplit)){
+        _dir = Dir::dD;
+    }else if(_angleD < (11*_dirSplit)){
+        _dir = Dir::dDL;
+    }else if(_angleD < (13*_dirSplit)){
+        _dir = Dir::dL;
+    }else if(_angleD < (15*_dirSplit)){
+        _dir = Dir::dUL;
+    }else{
+        _dir = Dir::dU;
+    }
+    return _dir;
+}
+
 class Game;
 struct Stat;
 
@@ -180,7 +226,7 @@ struct AnimInst{
     double frameTicker, frameDelay;
 
     AnimInst(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed);
-    bool update(double dTime);
+    virtual bool update(double dTime);
 };
 
 AnimInst::AnimInst(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed) : pos(_pos), angle(_angle), offset(_offset), isLooping(_loop), anim(_anim){
@@ -193,6 +239,34 @@ bool AnimInst::update(double dTime){
     if((frameTicker - dTime) <= 0){
         frameTicker = frameDelay + (frameTicker - dTime);
         if(currentFrame >= (int(anim->frames.size()) - 1)){
+            currentFrame = 0;
+            if(!isLooping){
+                return true;
+            }
+        }else{
+            currentFrame++;
+        }
+    }else{
+        frameTicker -= dTime;
+    }
+    return false;
+}
+
+struct SpriteAnimInst : public AnimInst{
+    int w, h;
+    SpriteAnimInst(Anim* _anim, SDL_Rect _pos, int _w, int _h, double _angle, SDL_Point _offset, bool _loop, double _speed);
+    bool update(double dTime) override;
+};
+
+SpriteAnimInst::SpriteAnimInst(Anim* _anim, SDL_Rect _pos, int _w, int _h, double _angle, SDL_Point _offset, bool _loop, double _speed) : w(_w), h(_h), AnimInst(_anim, _pos, _angle, _offset, _loop, _speed){
+}
+
+bool SpriteAnimInst::update(double dTime){
+    if((frameTicker - dTime) <= 0){
+        frameTicker = frameDelay + (frameTicker - dTime);
+        int _width;
+        SDL_QueryTexture(anim->frames[0], NULL, NULL, &_width, NULL);
+        if(currentFrame >= ((_width / w) - 1)){
             currentFrame = 0;
             if(!isLooping){
                 return true;
@@ -223,6 +297,9 @@ public:
     double atkTicker;
     double atkDelay;
     double aspd;
+    double walkingAngleR;
+    Dir facingDir;
+    SpriteAnimInst* animInst;
 
     static int getID();
     static void clearID(int _id);
@@ -279,9 +356,10 @@ bool Enemy::takeDamage(int _dmg){
 
 void Enemy::update(double dTime, int _spdMult){
     isAttacking = false;
+    animInst->update(dTime);
     if(!attackState){
-        int dx = (LEVEL_W / 2.0) - (x + (w / 2.0));
-        int dy = (LEVEL_H / 2.0) - (y + (h / 2.0));
+        int dx = (LEVEL_W / 2.0) - (x + (w / 4.0));
+        int dy = (LEVEL_H / 2.0) - (y + (h / 4.0));
         double dist = std::sqrt((dx*dx)+(dy*dy));
         double dxN = dx / dist;
         double dyN = dy / dist;
@@ -462,6 +540,8 @@ class Game{
     int muzzleFlashID;
     Anim* impactAnim;
     int impactAnimIDs[4];
+    Anim* walkAnims[8];
+    int walkAnimIDs[8];
 
     int circleFenceID;
 
@@ -498,6 +578,7 @@ class Game{
     std::vector<Enemy*> enemies;
     std::vector<Anim*> anims;
     std::vector<AnimInst*> animInstances;
+    std::vector<SpriteAnimInst*> spriteAnimInstances;
 
     std::map<std::string, Stat*> statMap;
     std::vector<Stat*> stats;
@@ -547,6 +628,7 @@ public:
     void drawTurret(int _id, SDL_Rect _dest, double _angle, SDL_Point _offset, double _range);
     int spawnNewEnemy();
     AnimInst* spawnAnim(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _offset, bool _loop, double _speed);
+    SpriteAnimInst* spawnSpriteAnim(Anim* _anim, SDL_Rect _pos, int _w, int _h, double _angle, SDL_Point _offset, bool _loop, double _speed);
 };
 
 Game::Game(){
@@ -562,6 +644,10 @@ Game::Game(){
     hiscoreTexs[1] = nullptr;
     hiscoreTexs[3] = nullptr;
     hiscoreTexs[4] = nullptr;
+
+    for(int i = 0; i < 8; i++){
+        walkAnims[i] = nullptr;
+    }
 
     fps = 30.0;
     fpsTicker = 1000.0 / fps;
@@ -730,7 +816,7 @@ void Game::targetEnemy(int _tid){
         double dist = std::abs(sqrt((xd*xd)+(yd*yd)));
         if(dist < lowestDist){
             lowestDist = dist;
-            double newAngle = (std::atan2(-yd, xd) * (180.0 / 3.141)) + 90.0;
+            double newAngle = (std::atan2(-yd, xd) * (180.0 / M_PI)) + 90.0;
             turrets[_tid]->angle = newAngle;
             turrets[_tid]->target = (*it);
             turrets[_tid]->targetID = (*it)->id;
@@ -738,9 +824,37 @@ void Game::targetEnemy(int _tid){
     }
 }
 
-double nAngle = 0.0;
+void printDir(Dir _dir){
+    switch(_dir){
+        case Dir::dU:
+            std::cout << "Up\n";
+            break;
+        case Dir::dUR:
+            std::cout << "Up - RIGHT\n";
+            break;
+        case Dir::dR:
+            std::cout << "RIGHT\n";
+            break;
+        case Dir::dDR:
+            std::cout << "DOWN - RIGHT\n";
+            break;
+        case Dir::dD:
+            std::cout << "DOWN\n";
+            break;
+        case Dir::dDL:
+            std::cout << "DOWN - LEFT\n";
+            break;
+        case Dir::dL:
+            std::cout << "LEFT\n";
+            break;
+        case Dir::dUL:
+            std::cout << "Up - LEFT\n";
+            break;
+    }
+}
+
+double nAngle = -90.0;
 bool ENEMY_SPAWN_TEST_ANGLE = false;
-double _pi_over_180 = (3.141 / 180.0);
 int Game::spawnNewEnemy(){
     if(int(enemies.size()) < (10 + (statMap["maxEnemies"]->stat * 5)) && (int(enemies.size()) < MAX_ENEMIES)){
         Enemy& E = *(new Enemy());
@@ -752,11 +866,14 @@ int Game::spawnNewEnemy(){
             newAngle = nAngle * _pi_over_180;
             nAngle += 18.0;
         }
+        E.walkingAngleR = newAngle + (M_PI / 2.0);
+        E.facingDir = RadToDir(E.walkingAngleR);
         double spawnRadius = LEVEL_W / 4.0;
         E.x = (int(LEVEL_W / 2.0) - 8) + (spawnRadius * std::cos(newAngle));
         E.y = (int(LEVEL_H / 2.0) - 8) + (spawnRadius * std::sin(newAngle));
-        E.w = 16.0;
-        E.h = 16.0;
+        E.w = 32.0;
+        E.h = 32.0;
+        E.animInst = spawnSpriteAnim(walkAnims[int(E.facingDir)], SDL_Rect{E.x, E.y, E.w, E.h}, E.w, E.h, NULL, SDL_Point{0,0}, true, 1.0);
         E.spd = 32.0;
         E.coinDrop = 1 + (currentWave / 2.0);
         E.atkDelay = 1000.0;
@@ -975,10 +1092,16 @@ AnimInst* Game::spawnAnim(Anim* _anim, SDL_Rect _pos, double _angle, SDL_Point _
     AnimInst* _A = new AnimInst(_anim, _pos, _angle, _offset, _loop, _speed);
     return _A;
 }
+SpriteAnimInst* Game::spawnSpriteAnim(Anim* _anim, SDL_Rect _pos, int _w, int _h, double _angle, SDL_Point _offset, bool _loop, double _speed){
+    SpriteAnimInst* _A = new SpriteAnimInst(_anim, _pos, _w, _h, _angle, _offset, _loop, _speed);
+    return _A;
+}
 
 void Game::fireTurret(int _turretID){
     if((turrets[_turretID]->target != nullptr) && (Enemy::checkID(turrets[_turretID]->targetID) == true)){
-        turrets[_turretID]->target->takeDamage(statMap["Dmg"]->stat);
+        if(turrets[_turretID]->target->takeDamage(statMap["Dmg"]->stat)){
+            turrets[_turretID]->target = nullptr;
+        }
         SDL_Rect pos = {turrets[_turretID]->cannonRect.x - 4, turrets[_turretID]->cannonRect.y - 32, 32, 32};
         SDL_Point offset = turrets[_turretID]->pivotOffset;
         offset.x += 4;
@@ -1165,6 +1288,15 @@ bool Game::update(double dTime){
         impactAnimIDs[2] = newTexture("impact_2.png");
         impactAnimIDs[3] = newTexture("impact_3.png");
 
+        walkAnimIDs[0] = newTexture("Walk_Sprites\\Z1WalkUp.png");
+        walkAnimIDs[1] = newTexture("Walk_Sprites\\Z1WalkUpRight.png");
+        walkAnimIDs[2] = newTexture("Walk_Sprites\\Z1WalkRight.png");
+        walkAnimIDs[3] = newTexture("Walk_Sprites\\Z1WalkDownRight.png");
+        walkAnimIDs[4] = newTexture("Walk_Sprites\\Z1WalkDown.png");
+        walkAnimIDs[5] = newTexture("Walk_Sprites\\Z1WalkDownLeft.png");
+        walkAnimIDs[6] = newTexture("Walk_Sprites\\Z1WalkLeft.png");
+        walkAnimIDs[7] = newTexture("Walk_Sprites\\Z1WalkUpLeft.png");
+
         CoinTxID = newTexture("coin.png");
         updateCoins(100);
         WaveTextTx = renderText("Wave " + std::to_string(currentWave) + " (" + std::to_string(nextWaveCounter) + " / " + std::to_string(nextWaveReq) + ")", {0,0,0}, renderer, font);
@@ -1190,7 +1322,13 @@ bool Game::update(double dTime){
         impactAnim->addFrameTx(textures[impactAnimIDs[2]]);
         impactAnim->addFrameTx(textures[impactAnimIDs[3]]);
 
-        int _turretCount = 3;
+        for(int i = 0; i < 8; i++){
+            walkAnims[i] = new Anim(30.0);
+            walkAnims[i]->addFrameTx(textures[walkAnimIDs[i]]);
+            walkAnims[i]->addFrameTx(textures[walkAnimIDs[i]]);
+        }
+
+        int _turretCount = 1;
         Turret* t;
         if(_turretCount < 2){
             t = new Turret(int(LEVEL_W / 2.0) - 32, int(LEVEL_H / 2.0) - 32, Turret::turretType::tAutoGun);
@@ -1298,16 +1436,13 @@ bool Game::update(double dTime){
                 if(!gameOver){
                     (*it)->update(dTime, statMap["EnemySpeed"]->stat);
                     if((*it)->isAttacking){
-                        double xd = (LEVEL_W / 2.0) - ((*it)->x + ((*it)->w / 2.0));
-                        double yd = ((*it)->y + ((*it)->h / 2.0)) - (LEVEL_H / 2.0);
-                        double _angle = (std::atan2(-yd, xd));
+                        double _angle = (*it)->walkingAngleR + (M_PI / 2.0);
                         double _x = ((*it)->x - 32) + ((*it)->h * 2.0 * std::cos(_angle));
                         double _y = ((*it)->y - 32) + ((*it)->h * 2.0 * std::sin(_angle));
                         SDL_Rect pos = {_x, _y, 64, 64};
                         SDL_Point offset = {0,0};
                         animInstances.push_back(spawnAnim(impactAnim, pos, 0.0, offset, false, 0.5));
                         towerHp -= (*it)->dmg;
-                        std::cout << towerHp << "\n";
                         if(towerHp <= 0){
                             gameOver = true;
                         }
@@ -1322,7 +1457,8 @@ bool Game::update(double dTime){
                 SDL_Rect enemyRect = {int((*it)->x), int((*it)->y), int((*it)->w), int((*it)->h)};
                 double _angle = 360.0 - ViewAngle;
                 int _texID = -1;
-                switch((*it)->type){
+                _texID = walkAnimIDs[int((*it)->facingDir)];
+                /*switch((*it)->type){
                     case Enemy::Types::tFast:
                         _texID = blueEnemyID;
                         break;
@@ -1333,13 +1469,26 @@ bool Game::update(double dTime){
                     default:
                         _texID = redEnemyID;
                         break;
-                }
-                drawTexture(_texID, enemyRect, _angle);
+                }*/
+                SDL_Rect tR = {(*it)->animInst->currentFrame * (*it)->animInst->w, 0, 32, 32};
+                SDL_RenderCopy(renderer, textures[_texID], &tR, &enemyRect);
                 SDL_Rect hpRect = enemyRect;
                 hpRect.y -= 8;
                 hpRect.h = 4;
-                hpRect.w = int(hpRect.w * double((*it)->hp / (*it)->maxHp));
+                hpRect.w = int(hpRect.w * double(double((*it)->hp) / double((*it)->maxHp)));
                 drawTexture(hpBarID, hpRect, _angle);
+                it++;
+            }
+        }
+
+        for(std::vector<SpriteAnimInst*>::iterator it = spriteAnimInstances.begin(); it != spriteAnimInstances.end();){
+            SDL_Rect _sXY = {(*it)->w * (*it)->currentFrame, 0, (*it)->w, (*it)->h};
+            SDL_RenderCopyEx(renderer, (*it)->anim->frames[0], &_sXY, &(*it)->pos, (*it)->angle, &(*it)->offset, SDL_FLIP_NONE);
+
+            if((*it)->update(dTime)){
+                delete (*it);
+                it = spriteAnimInstances.erase(it);
+            }else{
                 it++;
             }
         }
