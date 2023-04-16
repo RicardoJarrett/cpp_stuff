@@ -21,7 +21,7 @@ int SCR_W = 1280;//480;
 int SCR_H = 720;//360;
 int LEVEL_W = 4096;
 int LEVEL_H = 4096;
-bool FULLSCREEN = false;
+bool FULLSCREEN = true;
 
 enum AspectRatio{
     r16x9,
@@ -126,7 +126,7 @@ class Button{
     SDL_Rect area;
     void (*clickFuncPtr)();
     void (Game::*clickMFuncPtr)();
-    void (Game::*clickStatFuncPtr)(Stat& _stat);
+    void (Game::*clickStatFuncPtr)(Stat& _stat, bool _texOnly);
     double bounce;
     type T;
     Game* gamePtr;
@@ -134,7 +134,7 @@ class Button{
 public:
     Button(SDL_Rect _area, void (*F)());
     Button(SDL_Rect _area, void (Game::*F)(), Game* _game);
-    Button(SDL_Rect _area, void (Game::*F)(Stat& _stat), Game* _game, Stat* _stat);
+    Button(SDL_Rect _area, void (Game::*F)(Stat& _stat, bool _texOnly), Game* _game, Stat* _stat);
     bool checkClick(int x, int y);
     bool checkOver(int x, int y);
     void update(double dTime);
@@ -153,7 +153,7 @@ Button::Button(SDL_Rect _area, void (Game::*F)(), Game* _game) : clickMFuncPtr(F
     upgStat = nullptr;
 }
 
-Button::Button(SDL_Rect _area, void (Game::*F)(Stat& _stat), Game* _game, Stat* _stat) : area(_area), clickStatFuncPtr(F), gamePtr(_game), upgStat(_stat){
+Button::Button(SDL_Rect _area, void (Game::*F)(Stat& _stat, bool _texOnly), Game* _game, Stat* _stat) : area(_area), clickStatFuncPtr(F), gamePtr(_game), upgStat(_stat){
     bounce = 0.0;
     T = statfunc;
 }
@@ -165,7 +165,7 @@ bool Button::checkClick(int x, int y){
                 clickFuncPtr();
                 break;
             case statfunc:
-                (gamePtr->*clickStatFuncPtr)(*upgStat);
+                (gamePtr->*clickStatFuncPtr)(*upgStat, false);
                 break;
             case memberfunc:
                 (gamePtr->*clickMFuncPtr)();
@@ -358,8 +358,8 @@ void Enemy::update(double dTime, int _spdMult){
     isAttacking = false;
     animInst->update(dTime);
     if(!attackState){
-        int dx = (LEVEL_W / 2.0) - (x + (w / 4.0));
-        int dy = (LEVEL_H / 2.0) - (y + (h / 4.0));
+        int dx = (LEVEL_W / 2.0) - (x + (w / 2.0));
+        int dy = (LEVEL_H / 2.0) - (y + (h / 2.0));
         double dist = std::sqrt((dx*dx)+(dy*dy));
         double dxN = dx / dist;
         double dyN = dy / dist;
@@ -597,7 +597,7 @@ class Game{
     void targetEnemy(int _tid);
     void fireTurret(int _turretID);
 
-    void statUpgF(Stat& _stat);
+    void statUpgF(Stat& _stat, bool _texOnly);
     void drawUpgBtns();
 
     void newStatBtn(Stat* _stat, int _texID);
@@ -882,13 +882,13 @@ int Game::spawnNewEnemy(){
 
         if((currentWave % 10) == 0){
             E.type = Enemy::Types::tBoss;
-            E.w *= 8;
-            E.h *= 8;
-            E.maxHp *= 25;
-            E.hp *= 25;
+            E.w *= 4;
+            E.h *= 4;
+            E.maxHp *= 20;
+            E.hp *= 20;
             E.spd *= 0.5;
-            E.dmg *= 10;
-            E.coinDrop *= 50;
+            E.dmg *= 5;
+            E.coinDrop *= 10;
         }else{
             if(((currentWave - 3) % 10) == 0){
                 E.type = Enemy::Types::tFast;
@@ -932,7 +932,13 @@ Game game;
 void Game::newStatBtn(Stat* _stat, int _texID){
     _stat->btnID = statBtnID;
     buttons.push_back(new Button(_stat->btnTexRect, &statUpgF, this, _stat));
-    _stat->textTex = renderText(" " + std::to_string(_stat->level) + " : " + std::to_string(_stat->upgradeCost), {0,0,0}, renderer, font);
+    SDL_Color _col;
+    if(_stat->upgradeCost < coins){
+        _col = {21, 111, 48};
+    }else{
+        _col = {208, 0, 0};
+    }
+    _stat->textTex = renderText(" " + std::to_string(_stat->level) + " : " + std::to_string(_stat->upgradeCost), _col, renderer, font);
     _stat->iconID = _texID;
 }
 
@@ -1045,39 +1051,48 @@ void Game::drawTurret(int _id, SDL_Rect _dest, double _angle, SDL_Point _offset,
     DrawCircle(renderer, _dest.x + (_dest.w / 2.0), _dest.y + 20 + (_dest.h / 2.0), _range + (statMap["fireRange"]->stat * 10));
 }
 
-void Game::statUpgF(Stat& _stat){
-    if(coins >= _stat.upgradeCost){
-        updateCoins(-_stat.upgradeCost);
-        _stat.upgradeCost *= 1.3;
-        SDL_DestroyTexture(_stat.textTex);
-        _stat.level++;
-        _stat.stat++;
-        std::string _tLvl;
-        std::string _tUpgC;
-        if((_stat.level / 1000.0) > 1){
-            if((_stat.level / 1000000.0) > 1){
-                _tLvl = std::to_string(_stat.level / 1000000) = "M";
-            }else{
-                _tLvl = std::to_string(_stat.level / 1000) + "K";
-            }
-        }else{
-            _tLvl = std::to_string(_stat.level);
+void Game::statUpgF(Stat& _stat, bool _texOnly = false){
+    if(!_texOnly){
+        if(coins >= _stat.upgradeCost){
+            updateCoins(-_stat.upgradeCost);
+            _stat.upgradeCost *= 1.3;
+            _stat.level++;
+            _stat.stat++;
         }
-        if((_stat.upgradeCost / 1000.0) > 1){
-            if((_stat.upgradeCost / 1000000.0) > 1){
-                _tUpgC = std::to_string(_stat.upgradeCost / 1000000) + "M";
-            }else{
-                _tUpgC = std::to_string(_stat.upgradeCost / 1000) + "K";
-            }
-        }else{
-            _tUpgC = std::to_string(_stat.upgradeCost);
-        }
-        _stat.textTex = renderText(_tLvl + ": " + _tUpgC, {0,0,0}, renderer, font);
     }
+    SDL_DestroyTexture(_stat.textTex);
+    std::string _tLvl;
+    std::string _tUpgC;
+    if((_stat.level / 1000.0) > 1){
+        if((_stat.level / 1000000.0) > 1){
+            _tLvl = std::to_string(_stat.level / 1000000) = "M";
+        }else{
+            _tLvl = std::to_string(_stat.level / 1000) + "K";
+        }
+    }else{
+        _tLvl = std::to_string(_stat.level);
+    }
+    if((_stat.upgradeCost / 1000.0) > 1){
+        if((_stat.upgradeCost / 1000000.0) > 1){
+            _tUpgC = std::to_string(_stat.upgradeCost / 1000000) + "M";
+        }else{
+            _tUpgC = std::to_string(_stat.upgradeCost / 1000) + "K";
+        }
+    }else{
+        _tUpgC = std::to_string(_stat.upgradeCost);
+    }
+    SDL_Color _col;
+    if(_stat.upgradeCost < coins){
+        _col = {21, 111, 48};
+    }else{
+        _col = {208, 0, 0};
+    }
+    _stat.textTex = renderText(_tLvl + ": " + _tUpgC, _col, renderer, font);
 }
 
 void Game::drawUpgBtns(){
     for(std::map<std::string, Stat*>::iterator it = statMap.begin(); it != statMap.end(); it++){
+        statUpgF(*((*it).second), true);
         drawTexture((*it).second->btnID, (*it).second->btnTexRect);
         drawTexture((*it).second->iconID, (*it).second->iconRect);
         int txw, txh;
