@@ -1,7 +1,7 @@
 # <p align="center">TowerDefence</p>
 ## <p align="center">About</p>
 A simple Tower Defence game. Tap / Click to shoot the enemies.
-The aim of this project is to work at quickly creating and implementing UI and game ideas.
+The aim of this project is to work at quickly creating and implementing UI and game ideas. Developed using SDL2.
 ## <p align="center">Recently Added</p>
 <p align="center">Turret swapping, stats and animations</p>
 
