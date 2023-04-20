@@ -3,9 +3,6 @@
 A simple Tower Defence game. Tap / Click to shoot the enemies.
 The aim of this project is to work at quickly creating and implementing UI and game ideas.
 
-## <p align="center">Clips</p>
-<video src="gameplayImages/TD_2023-04-20_TurretSwap_c.mp4" controls="controls" style="max-height: 320px;"></video>
-
 ## <p align="center">Images</p>
 <p align="center"><img src="MainMenu.png" width="320" height="320"> <img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
 <p align="center"><img src="gameplayImages/TD_15_04_2023_multiTurret.png" height="320"></p>
