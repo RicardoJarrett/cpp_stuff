@@ -22,7 +22,7 @@ int SCR_W = 1280;//480;
 int SCR_H = 720;//360;
 int LEVEL_W = 4096;
 int LEVEL_H = 4096;
-bool FULLSCREEN = true;
+bool FULLSCREEN = false;
 bool PLAY_TEST = false;
 bool HOLD_CONSOLE_ON_EXIT = false;
 
@@ -1017,7 +1017,7 @@ public:
     void init();
     void newTurret(Turret::turretType _turretType);
     void updateState(GState newState);
-    int newTexture(std::string _path);
+    int newTexture(std::string _path, bool _inImages=true);
     void drawTexture(int _id, SDL_Rect _dest);
     void drawTexture(int _id, SDL_Rect _dest, double _angle);
     void drawTurret(int _id, SDL_Rect _dest, double _angle, SDL_Point _offset, double _range, double _swapScale=1.0);
@@ -1478,9 +1478,12 @@ void newGameBtn(){
     game.destroyButtons();
 }
 
-int Game::newTexture(std::string _path){
+int Game::newTexture(std::string _path, bool _inImages){
     int retID = -1;
     std::string path = getPath();
+    if(_inImages){
+         path += "images\\";
+    }
     std::map<std::string, int>::iterator texIDtmp = texIDs.find(path + _path);
 
     if(texIDtmp != texIDs.end()){
@@ -1892,10 +1895,10 @@ bool Game::update(double dTime){
         hpBarBgID = newTexture("hpBar_bg.png");
         Enemy::initEnemies(MAX_ENEMIES);
 
-        turretBaseID = newTexture("td_basic_towers\\Tower.png");
-        turretCannonIDs[0] = newTexture("td_basic_towers\\MG3.png");
-        turretCannonIDs[1] = newTexture("td_basic_towers\\Missile_Launcher.png");
-        turretCannonIDs[2] = newTexture("td_basic_towers\\Cannon.png");
+        turretBaseID = newTexture("td_basic_towers\\Tower.png", false);
+        turretCannonIDs[0] = newTexture("td_basic_towers\\MG3.png", false);
+        turretCannonIDs[1] = newTexture("td_basic_towers\\Missile_Launcher.png", false);
+        turretCannonIDs[2] = newTexture("td_basic_towers\\Cannon.png", false);
         base.baseTexID = newTexture("circle_fence.png");
         base.turretBaseTexID = newTexture("icon_Base.png");
         muzzleFlashID = newTexture("MuzzleFlash.png");
@@ -1905,14 +1908,14 @@ bool Game::update(double dTime){
         impactAnimIDs[2] = newTexture("impact_2.png");
         impactAnimIDs[3] = newTexture("impact_3.png");
 
-        walkAnimIDs[0] = newTexture("Walk_Sprites\\Z1WalkUp.png");
-        walkAnimIDs[1] = newTexture("Walk_Sprites\\Z1WalkUpRight.png");
-        walkAnimIDs[2] = newTexture("Walk_Sprites\\Z1WalkRight.png");
-        walkAnimIDs[3] = newTexture("Walk_Sprites\\Z1WalkDownRight.png");
-        walkAnimIDs[4] = newTexture("Walk_Sprites\\Z1WalkDown.png");
-        walkAnimIDs[5] = newTexture("Walk_Sprites\\Z1WalkDownLeft.png");
-        walkAnimIDs[6] = newTexture("Walk_Sprites\\Z1WalkLeft.png");
-        walkAnimIDs[7] = newTexture("Walk_Sprites\\Z1WalkUpLeft.png");
+        walkAnimIDs[0] = newTexture("Walk_Sprites\\Z1WalkUp.png", false);
+        walkAnimIDs[1] = newTexture("Walk_Sprites\\Z1WalkUpRight.png", false);
+        walkAnimIDs[2] = newTexture("Walk_Sprites\\Z1WalkRight.png", false);
+        walkAnimIDs[3] = newTexture("Walk_Sprites\\Z1WalkDownRight.png", false);
+        walkAnimIDs[4] = newTexture("Walk_Sprites\\Z1WalkDown.png", false);
+        walkAnimIDs[5] = newTexture("Walk_Sprites\\Z1WalkDownLeft.png", false);
+        walkAnimIDs[6] = newTexture("Walk_Sprites\\Z1WalkLeft.png", false);
+        walkAnimIDs[7] = newTexture("Walk_Sprites\\Z1WalkUpLeft.png", false);
 
         CoinTxID = newTexture("coin.png");
         updateCoins(100);
