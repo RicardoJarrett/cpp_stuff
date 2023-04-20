@@ -2,10 +2,12 @@
 ## <p align="center">About</p>
 A simple Tower Defence game. Tap / Click to shoot the enemies.
 The aim of this project is to work at quickly creating and implementing UI and game ideas.
+## <p align="center">Recently Added<\p>
+<p align="center">Turret swapping, stats and animations<\p>
 
 ## <p align="center">Images</p>
-<p align="center"><img src="MainMenu.png" width="320" height="320"> <img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
-<p align="center"><img src="gameplayImages/TD_15_04_2023_multiTurret.png" height="320"></p>
+<p align="center"><img src="MainMenu.png" width="320" height="320"><img src="gameplayImages/TD_20_04_2023_TowerUpgrade.png" height="320"></p>
+<p align="center"><img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
 
 ## <p align="center">Features</p>
 ### <p align="center">Enemies</p>
@@ -37,5 +39,5 @@ The aim of this project is to work at quickly creating and implementing UI and g
 Link + compile with SDL2
 
 ### <p align="center">Old Gameplay Images</p>
-<p align="center"><img src="gameplayImages/TD_13_04_2023_boss.png" height="320">
+<p align="center"><img src="gameplayImages/TD_15_04_2023_multiTurret.png" height="320"> <img src="gameplayImages/TD_13_04_2023_boss.png" height="320">
 <p align="center"><img src="Gameplay_08042023.png" height="320"> <img src="Gameplay.png" width="320" height="320">
