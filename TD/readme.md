@@ -6,8 +6,7 @@ The aim of this project is to work at quickly creating and implementing UI and g
 <p align="center">Turret swapping, stats and animations</p>
 
 ## <p align="center">Images</p>
-<p align="center"><img src="MainMenu.png" width="320" height="320"><img src="gameplayImages/TD_20_04_2023_TowerUpgrade.png" height="320"></p>
-<p align="center"><img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
+<p align="center"><img src="gameplayImages/TD_20_04_2023_TowerUpgrade.png" height="320"> <img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
 
 ## <p align="center">Features</p>
 ### <p align="center">Enemies</p>
