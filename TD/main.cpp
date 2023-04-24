@@ -71,6 +71,14 @@ SDL_Texture* renderText(std::string _text, SDL_Color _col, SDL_Renderer* rendere
     return retTx;
 }
 
+bool vecInRect(double _x, double _y, SDL_Rect _rect){
+    if((_x > _rect.x) && (_x < (_rect.x + _rect.w))
+            && (_y > _rect.y) && (_y < (_rect.y + _rect.h))){
+                return true;
+    }
+return false;
+}
+
 std::string rectToString(SDL_Rect _r){
     std::string retStr = std::to_string(_r.x) + "," + std::to_string(_r.y) + " " + std::to_string(_r.w) + "," + std::to_string(_r.h);
     return retStr;
@@ -148,14 +156,13 @@ class Button{
     void (*clickFuncPtr)();
     void (Game::*clickMFuncPtr)();
     void (Game::*clickStatFuncPtr)(Stat& _stat, bool _texOnly);
-    void (Game::*StatBaseUpgFuncPtr)(Stat& _stat, int _tStatID, bool _texOnly);
+    void (Game::*StatBaseUpgFuncPtr)(Stat& _stat, bool _texOnly);
 public:
     bool active;
 
     Button(SDL_Rect _area, void (*F)(), SDL_Texture* _toolTipTex);
     Button(SDL_Rect _area, void (Game::*F)(), Game* _game, SDL_Texture* _toolTipTex);
     Button(SDL_Rect _area, void (Game::*F)(Stat& _stat, bool _texOnly), Game* _game, Stat* _stat, SDL_Texture* _toolTipTex);
-    Button(SDL_Rect _area, void (Game::*F)(Stat& _stat, int _tStatID, bool _texOnly), Game* _game, Stat* _stat, SDL_Texture* _toolTipTex, int _tStatID);
     ~Button();
     bool checkClick();
     bool checkOver(int x, int y);
@@ -175,7 +182,6 @@ Button::~Button(){
     clickFuncPtr = nullptr;
     clickMFuncPtr = nullptr;
     clickStatFuncPtr = nullptr;
-    StatBaseUpgFuncPtr = nullptr;
     toolTipTex = nullptr;
     upgStat = nullptr;
 }
@@ -213,12 +219,6 @@ Button::Button(SDL_Rect _area, void (Game::*F)(Stat& _stat, bool _texOnly), Game
     active = true;
 }
 
-Button::Button(SDL_Rect _area, void (Game::*F)(Stat& _stat, int _tStatID, bool _texOnly), Game* _game, Stat* _stat, SDL_Texture* _toolTipTex, int _tStatID) : area(_area), gamePtr(_game), toolTipTex(_toolTipTex), upgStat(_stat), tStatID(_tStatID), StatBaseUpgFuncPtr(F){
-    bounce = 0.0;
-    T = baseStatFunc;
-    active = true;
-}
-
 bool Button::checkClick(){
     if(bounce == 0.0){
         switch(T){
@@ -232,7 +232,7 @@ bool Button::checkClick(){
                 (gamePtr->*clickMFuncPtr)();
                 break;
             case baseStatFunc:
-                (gamePtr->*StatBaseUpgFuncPtr)(*upgStat, tStatID, false);
+                (gamePtr->*clickStatFuncPtr)(*upgStat, false);
                 break;
         }
         bounce = 200.0;
@@ -458,9 +458,28 @@ void Enemy::update(double dTime, int _spdMult){
 }
 
 struct Stat{
+    enum statUpdState{
+        sNULL=0,
+        sUPGRADING=1,
+        sFINISH_UPGRADE=2
+    };
+    enum StatType{
+        stNULL=0,
+        stDMG,
+        stAUTOFIRE,
+        stRANGE,
+        stCOINDROP,
+        stMAXHP,
+        stHPREGEN,
+        stSPAWNSPEED,
+        stENEMYSPEED,
+        stMAXENEMIES
+    };
     int stat;
     int upgradeCost;
+    double upgradeCostScale;
     int level;
+    int type;
 
     int texID;
     SDL_Rect texRect;
@@ -469,19 +488,66 @@ struct Stat{
     SDL_Rect btnTexRect;
     int iconID;
     SDL_Rect iconRect;
+    bool isUpgrading;
+    double upgradeTimeScale;
+    double upgradeTime;
+    double upgradeTicker;
+    double upgradeProgress;
 
     Stat();
     Stat(SDL_Rect _rect);
     Stat(int x, int y, int w, int h);
     void moveStat(SDL_Rect _pos);
+    int update(double _dTime);
+    bool upgrade(int _coins);
 };
+
+bool Stat::upgrade(int _coins){
+    if(_coins >= upgradeCost){
+        if(!isUpgrading){
+            upgradeTicker = upgradeTime;
+            isUpgrading = true;
+            return true;
+        }
+    }
+    return false;
+}
+
+int Stat::update(double _dTime){
+    int _retState = Stat::statUpdState::sNULL;
+    if(isUpgrading){
+        upgradeTicker -= _dTime;
+        if(upgradeTicker <= 0){
+            upgradeTicker = 0;
+            upgradeTime = upgradeTime * upgradeTimeScale;
+            upgradeCost = upgradeCost * upgradeCostScale;
+            level++;
+            stat++;
+            isUpgrading = false;
+            _retState |= statUpdState::sFINISH_UPGRADE;
+        }else{
+            upgradeProgress = (upgradeTime - upgradeTicker) / upgradeTime;
+            _retState |= Stat::statUpdState::sUPGRADING;
+        }
+    }
+    return _retState;
+}
+
 Stat::Stat(){
     btnID = -1;
     upgradeCost = 10;
+    upgradeCostScale = 1.3;
+    upgradeTimeScale = 1.3;
     textTex = nullptr;
     iconID = -1;
     level = 1;
     stat = 1;
+    upgradeProgress = 1.0;
+    upgradeTicker = 0.0;
+    upgradeTime = 500.0;
+    upgradeTimeScale = 1.5;
+    isUpgrading = false;
+
 };
 Stat::Stat(SDL_Rect _rect) : Stat(){
     moveStat(_rect);
@@ -634,8 +700,90 @@ Turret::Turret(double _x=0.0, double _y=0.0, turretType _type=Turret::turretType
     statButtons[2] = nullptr;
 }
 
+struct TurretBay{
+    enum tbUpgState{
+        tbusNULL,
+        tbusUPGRADE,
+        tbusUPGRADE_FINISHED
+    };
+    Turret* turret;
+    int ID;
+    SDL_Rect pos;
+    SDL_Rect turret_Rect;
+
+    int baseTexID;
+    int turretBaseTexID;
+
+    bool isSwapping;
+    bool isUpgrading;
+    int upgStat;
+
+    double upgradeProgress;
+
+    TurretBay(int _ID);
+    bool addTurret(Turret* _turret);
+    void fSwapTurret(Turret* _turret);
+    int update(double _dTime, std::vector<SDL_Rect*>* _upgDrawRects);
+};
+
+TurretBay::TurretBay(int _ID) : ID(_ID){
+    turret = nullptr;
+    upgradeProgress = 1.0;
+    isSwapping = false;
+    isUpgrading = false;
+}
+
+bool TurretBay::addTurret(Turret* _turret){
+    if(_turret != nullptr){
+        if(turret == nullptr){
+            turret = &(*_turret);
+            return true;
+        }else{
+            std::cout << "ERROR: TurretBay Occupied: " << ID << "\n";
+        }
+    }else{
+        std::cout << "ERROR: Passing Null Turret\n";
+    }
+    return false;
+}
+
+void TurretBay::fSwapTurret(Turret* _turret){
+    if(_turret == nullptr){
+        turret = nullptr;
+    }else{
+        turret = &(*_turret);
+    }
+}
+
+int TurretBay::update(double _dTime, std::vector<SDL_Rect*>* _upgDrawRects){
+    int retState = tbUpgState::tbusNULL;
+    if(turret != nullptr){
+        for(int i = 0; i < 3; i++){
+            int statState = turret->stats[i]->update(_dTime);
+            if(statState == Stat::statUpdState::sUPGRADING){
+                isUpgrading = true;
+                upgradeProgress = turret->stats[i]->upgradeProgress;
+
+                SDL_Rect* progressRect = new SDL_Rect;
+                *progressRect = pos;
+                progressRect->y += (progressRect->h - 8);
+                progressRect->w = int(double(progressRect->w) * upgradeProgress);
+                progressRect->h = 16;
+                _upgDrawRects->push_back(progressRect);
+
+                retState |= tbUpgState::tbusUPGRADE;
+            }else if(statState == Stat::statUpdState::sFINISH_UPGRADE){
+                isUpgrading = false;
+                upgradeProgress = 1.0;
+                retState |= tbUpgState::tbusUPGRADE_FINISHED;
+            }
+        }
+    }
+    return retState;
+}
+
 struct Base{
-    enum UpdateState{
+    enum baseUpdState{
         usNULL=0,
         usHALF_SWAP=1,
         usSWAP_FINISH=2,
@@ -650,7 +798,7 @@ struct Base{
     int coins;
     bool isSwapping;
     bool halfSwapPassed;
-    bool isUpgrading;
+    int upgradingBays;
     int upgStat;
     Turret* swapT1;
     Turret* swapT2;
@@ -661,18 +809,18 @@ struct Base{
     double upgradeTicker;
     double currentUpgradeTime;
 
-    SDL_Rect turret_Rects[21];
-    Turret* turretBays[21];
+    //SDL_Rect turret_Rects[21];
+    //Turret* turretBays[21];
+    TurretBay* turretBays_2[21];
 
     Base(Game& _owner);
     Base();
     ~Base();
     void initTurretBases();
     int getFreeBase();
-    int update(double _dTime);
+    int update(double _dTime, std::vector<SDL_Rect*>* _upgDrawRects);
     void setOwner(Game& _owner);
     void startSwap(int _bayID_1, int _bayID_2);
-    void startUpgrade(int _stat);
 };
 
 Base::Base(Game& _owner):owner(&_owner){
@@ -684,6 +832,7 @@ Base::Base(Game& _owner):owner(&_owner){
     upgradeTime = 2000.0;
     upgradeTicker = 0;
     currentUpgradeTime = 0.0;
+    upgradingBays = 0;
 };
 Base::Base(){
     owner = nullptr;
@@ -695,6 +844,7 @@ Base::Base(){
     upgradeTime = 2000.0;
     upgradeTicker = 0;
     currentUpgradeTime = 0.0;
+    upgradingBays = 0;
 }
 Base::~Base(){
     owner = nullptr;
@@ -707,6 +857,7 @@ void Base::initTurretBases(){
     Base::FreeIDs = std::queue<int>();
     for(int i = 0; i < 21; i++){
         Base::FreeIDs.push(i);
+        turretBays_2[i] = new TurretBay(i);
     }
 
     int turret_base_w = 64;
@@ -714,8 +865,8 @@ void Base::initTurretBases(){
     double _x = ((LEVEL_W - turret_base_w) / 2.0);
     double _y = ((LEVEL_H - turret_base_w) / 2.0);
     SDL_Rect turretRect = {int(_x), int(_y), turret_base_w, turret_base_h};
-    turret_Rects[0] = turretRect;
-    turretBays[0] = nullptr;
+    turretBays_2[0]->pos = turretRect;
+    turretBays_2[0]->turret_Rect = turretRect;
 
     int turret_base_radius_outer = (pos.w / 2.0) + 104;
     int turret_base_radius_inner = (pos.w / 2.0) + 48;
@@ -741,8 +892,7 @@ void Base::initTurretBases(){
         if(newTurret){
             turretRect = {int(_x), int(_y), turret_base_w, turret_base_h};
             int index = newTurretIndex++;
-            turret_Rects[index] = turretRect;
-            turretBays[index] = nullptr;
+            turretBays_2[index]->turret_Rect = turretRect;
         }
     }
 }
@@ -756,14 +906,14 @@ void Base::startSwap(int _bayID_1, int _bayID_2){
                     isSwapping = true;
                     swapT1ID = _bayID_1;
                     swapT2ID = _bayID_2;
-                    if(turretBays[_bayID_1] != nullptr){
-                        swapT1 = turretBays[_bayID_1];
+                    if(turretBays_2[_bayID_1]->turret != nullptr){
+                        swapT1 = turretBays_2[_bayID_1]->turret;
                         swapT1->isSwapping = true;
                     }else{
                         swapT1 = nullptr;
                     }
-                    if(turretBays[_bayID_2] != nullptr){
-                        swapT2 = turretBays[_bayID_2];
+                    if(turretBays_2[_bayID_2]->turret != nullptr){
+                        swapT2 = turretBays_2[_bayID_2]->turret;
                         swapT2->isSwapping = true;
                     }else{
                         swapT2 = nullptr;
@@ -782,17 +932,8 @@ void Base::startSwap(int _bayID_1, int _bayID_2){
     }
 }
 
-void Base::startUpgrade(int _stat){
-    upgStat = _stat;
-    if((turretBays[0] != nullptr) && (!isUpgrading)){
-        currentUpgradeTime = upgradeTime * turretBays[0]->stats[_stat]->stat;
-        upgradeTicker = currentUpgradeTime;
-        isUpgrading = true;
-    }
-}
-
-int Base::update(double _dTime){
-    int _retState = Base::UpdateState::usNULL;
+int Base::update(double _dTime, std::vector<SDL_Rect*>* _upgProgressRects){
+    int _retState = Base::baseUpdState::usNULL;
     if(isSwapping){
         swapTicker -= _dTime;
         if(swapTicker <= 0){
@@ -811,7 +952,7 @@ int Base::update(double _dTime){
             swapT2ID = -1;
             halfSwapPassed = false;
             swapTicker = swapTime;
-            _retState |= Base::UpdateState::usSWAP_FINISH;
+            _retState |= Base::baseUpdState::usSWAP_FINISH;
         }else{
             if(swapTicker > (swapTime / 2.0)){
                 if(swapT1 != nullptr){
@@ -823,17 +964,17 @@ int Base::update(double _dTime){
             }else{
                 if(!halfSwapPassed){
                     halfSwapPassed = true;
-                    _retState |= UpdateState::usHALF_SWAP;
-                    if(turretBays[swapT1ID] == nullptr){
-                        turretBays[swapT1ID] = turretBays[swapT2ID];
-                        turretBays[swapT2ID] = nullptr;
-                    }else if(turretBays[swapT2ID] == nullptr){
-                        turretBays[swapT2ID] = turretBays[swapT1ID];
-                        turretBays[swapT1ID] = nullptr;
+                    _retState |= baseUpdState::usHALF_SWAP;
+                    if(turretBays_2[swapT1ID]->turret == nullptr){
+                        turretBays_2[swapT1ID]->turret = turretBays_2[swapT2ID]->turret;
+                        turretBays_2[swapT2ID]->turret = nullptr;
+                    }else if(turretBays_2[swapT2ID]->turret == nullptr){
+                        turretBays_2[swapT2ID]->turret = turretBays_2[swapT1ID]->turret;
+                        turretBays_2[swapT1ID]->turret = nullptr;
                     }else{
-                        Turret* _T1 = &(*(turretBays[swapT1ID]));
-                        turretBays[swapT1ID] = turretBays[swapT2ID];
-                        turretBays[swapT2ID] = _T1;
+                        Turret* _T1 = &(*(turretBays_2[swapT1ID]->turret));
+                        turretBays_2[swapT1ID]->turret = turretBays_2[swapT2ID]->turret;
+                        turretBays_2[swapT2ID]->turret = _T1;
                     }
                     int tSwapID = swapT1ID;
                     swapT1ID = swapT2ID;
@@ -848,14 +989,13 @@ int Base::update(double _dTime){
             }
         }
     }
-    if(isUpgrading){
-        upgradeTicker -= _dTime;
-        if(upgradeTicker <= 0){
-            upgradeTicker = 0;
-            _retState |= Base::UpdateState::usFINISH_UPGRADE;
-            isUpgrading = false;
-        }else{
-            _retState |= Base::UpdateState::usUPGRADE;
+    for(int i = 0; i < 21; i++){
+        int bayState = turretBays_2[i]->update(_dTime, _upgProgressRects);
+        if(bayState == TurretBay::tbUpgState::tbusUPGRADE){
+            _retState |= Base::baseUpdState::usUPGRADE;
+            //draw upgrade status
+        }else if(bayState == TurretBay::tbUpgState::tbusUPGRADE_FINISHED){
+            //
         }
     }
     return _retState;
@@ -990,12 +1130,12 @@ class Game{
     void drawBase();
 
     void statUpgF(Stat& _stat, bool _texOnly);
-    void statBaseUpgF(Stat& _stat, int _tStatType, bool _textOnly);
+    void statBaseUpgF(Stat& _stat, bool _textOnly);
     void drawUpgBtns();
 
     void newStatBtn(Stat* _stat, int _texID, std::string _toolTip);
     void newStatBtn(Stat* _stat, std::string _iconPath, std::string _toolTip);
-    Button* newStatForTurret(Stat** _stat, int _texID, std::string _toolTip, int _tStatID);
+    Button* newStatForTurret(Stat** _stat, int _texID, std::string _toolTip);
 
     void updateCoins(int _coins);
     void updateWaves();
@@ -1028,7 +1168,189 @@ public:
     SpriteAnimInst* spawnSpriteAnim(Anim* _anim, SDL_Rect _pos, int _w, int _h, double _angle, SDL_Point _offset, bool _loop, double _speed);
     void screenToLevel(double& _x, double& _y);
     void levelToScreen(double& _x, double& _y);
+    void updateStatText(Stat& _stat);
+    void updateButtons(double _dTime);
+    void drawBG();
+    void handleEvents(SDL_Event& _e);
+    bool checkBayClicks();
+    void changeBay(int _newBayID);
 };
+
+void Game::changeBay(int _newBayID){
+    if((_newBayID >= 0) && (_newBayID < 21)){
+        if(selectedBayID == _newBayID){
+            if(activeTurrets[selectedBayID] != nullptr){
+                activeTurrets[selectedBayID]->deactivateButtons();
+            }
+            selectedBayID = -1;
+        }else{
+            if(selectedBayID != -1){
+                if(activeTurrets[selectedBayID] != nullptr){
+                    activeTurrets[selectedBayID]->deactivateButtons();
+                }
+                if(!((base.turretBays_2[selectedBayID]->isUpgrading) || (base.turretBays_2[selectedBayID]->isSwapping))){
+                    base.startSwap(selectedBayID, _newBayID);
+                }
+            }
+            selectedBayID = _newBayID;
+        }
+    }else{
+        std::cout << "ERROR: Change to invalid bayID: " << _newBayID << "\n";
+    }
+}
+
+bool Game::checkBayClicks(){
+    bool _bayClicked = false;
+    for(int i = 0; i < 21; i++){
+        double scaledMX = double(mouseX);
+        double scaledMY = double(mouseY);
+        screenToLevel(scaledMX, scaledMY);
+        if(vecInRect(scaledMX, scaledMY, base.turretBays_2[i]->turret_Rect)){
+            changeBay(i);
+            _bayClicked = true;
+            return true;
+        }
+    }
+    return _bayClicked;
+}
+
+void Game::handleEvents(SDL_Event& _e){
+    while(SDL_PollEvent(&_e) != 0){
+        switch(_e.type){
+            case SDL_QUIT:
+                updateState(gsClose);
+                break;
+            case SDL_KEYDOWN:
+                switch(_e.key.keysym.sym){
+                    case SDLK_q:
+                        updateState(gsClose);
+                        break;
+                    case SDLK_LEFT:
+                        if(ViewAngle > (-360.0)){
+                            ViewAngle -= 90.0;
+                        }else{
+                            ViewAngle = 0.0;
+                        }
+                        break;
+                    case SDLK_RIGHT:
+                        if(ViewAngle < (360.0)){
+                            ViewAngle += 90.0;
+                        }else{
+                            ViewAngle = 0.0;
+                        }
+                        break;
+                    case SDLK_UP:
+                        if(viewScale > 0.5){
+                            viewScale -= 0.1;
+                        }else{
+                            viewScale = 0.5;
+                        }
+                        break;
+                    case SDLK_DOWN:
+                        if(viewScale < 2.0){
+                            viewScale += 0.1;
+                        }else{
+                            viewScale = 2.0;
+                        }
+                        break;
+                    case SDLK_RETURN:
+                        if(gameOver){
+                            updateState(gsInit);
+                        }
+                        break;
+                    case SDLK_p:
+                        paused = !paused;
+                        break;
+                }
+                break;
+            case SDL_MOUSEMOTION:
+                SDL_GetMouseState(&mouseX, &mouseY);
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                if(_e.button.button == SDL_BUTTON_LEFT){
+                    if(clickBounce <= 0.0){
+                        if(gameOver){
+                            updateState(gsInit);
+                        }
+                        lClick = true;
+                        clickBounce = 10.0;
+                    }else{
+                        lClick = false;
+                    }
+                }
+                break;
+            case SDL_MOUSEBUTTONUP:
+                if(_e.button.button == SDL_BUTTON_LEFT){
+                    lClick = false;
+                }
+                break;
+            case SDL_MOUSEWHEEL:
+                if(_e.wheel.y > 0){
+                    if(viewScale < 2.0){
+                        viewScale += _e.wheel.y * 0.1;
+                    }
+                    if(viewScale > 2.0){
+                        viewScale = 2.0;
+                    }
+                }else if(_e.wheel.y < 0){
+                    if(viewScale > 0.5){
+                        viewScale += _e.wheel.y * 0.1;
+                    }
+                    if(viewScale < 0.5){
+                        viewScale = 0.5;
+                    }
+                }
+                break;
+        }
+    }// poll &e
+}
+
+void Game::drawBG(){
+    SDL_Rect tRect = grassBGRect;
+    for(int i = 0; i < bgXtiles; i++){
+        for(int j = 0; j < bgYtiles; j++){
+            tRect.x = i * 1280;
+            tRect.y = j * 720;
+            drawTexture(grassBGID, tRect);
+        }
+    }
+}
+
+void Game::updateButtons(double _dTime){
+    if(btnsActive){
+        for(std::vector<Button*>::iterator it = buttons.begin(); it != buttons.end(); it++){
+            Button& B = *(*it);
+            B.update(_dTime);
+            if(B.checkOver(mouseX, mouseY)){
+                if(lClick){
+                    if(B.checkClick()){
+                        break;
+                    }
+                }
+                Stat* _s = B.getStat();
+                SDL_Rect tRect;
+                if(_s == nullptr){
+                    tRect = ngbRect;
+                }else{
+                    tRect = _s->btnTexRect;
+                }
+                tRect.x += 16;
+                tRect.y -= 16;
+                int txw, txh;
+                SDL_Texture* _tex = B.getTexture();
+                SDL_QueryTexture(_tex, NULL, NULL, &txw, &txh);
+                tRect.w = txw;
+                tRect.h = txh;
+
+                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+                SDL_RenderFillRect(renderer, &tRect);
+                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+                SDL_RenderDrawRect(renderer, &tRect);
+                SDL_RenderCopy(renderer, _tex, NULL, &tRect);
+            }
+        }
+    }
+}
 
 void Game::levelToScreen(double& _x, double& _y){
     _x = ((double(_x) / LEVEL_W) * (ViewRect.w * viewScale));
@@ -1209,16 +1531,24 @@ void Game::init(){
     fonts[2] = TTF_OpenFont("slkscr.ttf", 24);
     loadHiscores();
     selectedBayID = -1;
+
 }
 
 void Game::initStats(){
-    std::list<std::string> statNames = {"CoinDrop", "regenHP", "maxHP", "SpawnRate", "EnemySpeed", "maxEnemies"};
+    struct statNameType{
+        std::string name;
+        int type;
+    };
+    statNameType statDefs[6] = {{"CoinDrop", 4}, {"maxHP", 5}, {"regenHP", 6}, {"SpawnRate", 7}, {"EnemySpeed", 8}, {"maxEnemies", 9}};
+
     int statOffset = int(SCR_H / 4.0) * 3.0;
     int rowOffset = 80 + 5;
     int max_row = 4;
-    int iCount = 0;
-    for(std::list<std::string>::iterator it = statNames.begin(); it != statNames.end(); it++, iCount++){
-        statMap[(*it)] = new Stat(10 + (rowOffset * (iCount / max_row)), statOffset + ((iCount % max_row) * 20), 80, 16);
+    Stat* _tmpStat = nullptr;
+    for(int i = 0; i < 6; i++){
+        _tmpStat = new Stat(10 + (rowOffset * (i / max_row)), statOffset + ((i % max_row) * 20), 80, 16);
+        _tmpStat->type = statDefs[i].type;
+        statMap[statDefs[i].name] = _tmpStat;
     }
 }
 
@@ -1246,8 +1576,10 @@ void Game::destroyTurrets(){
         delete (*it);
     }
     StoredTurrets.clear();
-    for(int i = 0; i < 21; i++){
-        base.turretBays[i] = nullptr;
+    if(base.turretBays_2 != nullptr){
+        for(int i = 0; i < 21; i++){
+            base.turretBays_2[i]->turret = nullptr;
+        }
     }
 }
 
@@ -1428,11 +1760,11 @@ void Game::newStatBtn(Stat* _stat, std::string _iconPath, std::string _toolTip){
     newStatBtn(_stat, _stat->iconID, _toolTip);
 }
 
-Button* Game::newStatForTurret(Stat** _stat, int _texID, std::string _toolTip, int _tStatID){
+Button* Game::newStatForTurret(Stat** _stat, int _texID, std::string _toolTip){
     (*_stat) = new Stat(0, 0, 0, 0);
     (*_stat)->btnID = statBtnID;
     SDL_Texture* _tooltipTex = renderText(_toolTip, {0,0,0}, renderer, fonts[1]);
-    Button* _B = new Button((*_stat)->btnTexRect, &statBaseUpgF, this, (*_stat), _tooltipTex, _tStatID);
+    Button* _B = new Button((*_stat)->btnTexRect, &statBaseUpgF, this, (*_stat), _tooltipTex);
     buttons.push_back(_B);
     SDL_Color _col;
     if((*_stat)->upgradeCost <= base.coins){
@@ -1560,36 +1892,52 @@ void Game::drawTurret(int _id, SDL_Rect _dest, double _angle, SDL_Point _offset,
     DrawCircle(renderer, _dest.x + (_dest.w / 2.0), _dest.y + 20 + (_dest.h / 2.0), _range);
 }
 
-void Game::statUpgF(Stat& _stat, bool _texOnly = false){
-    if(!_texOnly){
-        if(base.coins >= _stat.upgradeCost){
-            updateCoins(-_stat.upgradeCost);
-            _stat.upgradeCost *= 1.3;
-            _stat.level++;
-            _stat.stat++;
-        }
+std::map<int, std::string> KFactorMap = {{0, "0"}, {1, "1"}, {2, "K"}, {3, "M"}, {4, "B"}, {5, "T"}};
+
+int getKFactor(int _num){
+    if(_num == 0){
+        return 0;
     }
+    int _retFactor = 0;
+    int currentFactor = 0;
+    int kDiv = 1000;
+    int _tNum = _num;
+    while(std::abs(_tNum) >= 1){
+        currentFactor++;
+        _tNum /= kDiv;
+    }
+    _retFactor = currentFactor * (_num / std::abs(_num));
+    return _retFactor;
+}
+
+std::string NumToKNum(int _num){
+    std::string _retStr = "";
+    double _retNum = _num;
+    int _kFactor = getKFactor(int(_retNum));
+    if((std::abs(_kFactor) != 1) && (_kFactor != 0)){
+        int _longFactor = std::pow(1000, std::abs(_kFactor) - 1);
+        _retNum = _retNum / _longFactor;
+        _retStr = std::to_string(_retNum);
+        int preDotStrSize = (_retStr.substr(0, _retStr.find('.'))).size();
+        _retStr = _retStr.substr(_retStr.find('.') - preDotStrSize, 4);
+        if(_retStr.back() == '.'){
+            _retStr = _retStr.substr(0, 3);
+        }
+        _retStr += KFactorMap[_kFactor];
+    }else{
+        _retStr = std::to_string(int(_retNum));
+    }
+    return _retStr;
+}
+
+void Game::updateStatText(Stat& _stat){
     SDL_DestroyTexture(_stat.textTex);
     std::string _tLvl;
     std::string _tUpgC;
-    if((_stat.level / 1000.0) > 1){
-        if((_stat.level / 1000000.0) > 1){
-            _tLvl = std::to_string(_stat.level / 1000000) = "M";
-        }else{
-            _tLvl = std::to_string(_stat.level / 1000) + "K";
-        }
-    }else{
-        _tLvl = std::to_string(_stat.level);
-    }
-    if((_stat.upgradeCost / 1000.0) > 1){
-        if((_stat.upgradeCost / 1000000.0) > 1){
-            _tUpgC = std::to_string(_stat.upgradeCost / 1000000) + "M";
-        }else{
-            _tUpgC = std::to_string(_stat.upgradeCost / 1000) + "K";
-        }
-    }else{
-        _tUpgC = std::to_string(_stat.upgradeCost);
-    }
+
+    _tLvl = NumToKNum(_stat.level);
+    _tUpgC = NumToKNum(_stat.upgradeCost);
+
     SDL_Color _col;
     if(_stat.upgradeCost <= base.coins){
         _col = {21, 111, 48};
@@ -1599,8 +1947,33 @@ void Game::statUpgF(Stat& _stat, bool _texOnly = false){
     _stat.textTex = renderText(_tLvl + ": " + _tUpgC, _col, renderer, fonts[1]);
 }
 
-void Game::statBaseUpgF(Stat& _stat, int _tStatID, bool _texOnly){
-    base.startUpgrade(_tStatID);
+void Game::statUpgF(Stat& _stat, bool _texOnly = false){
+    if(!_texOnly){
+        if(_stat.upgrade(base.coins)){
+            updateCoins(-_stat.upgradeCost);
+        }
+    }
+    SDL_DestroyTexture(_stat.textTex);
+    std::string _tLvl;
+    std::string _tUpgC;
+
+    _tLvl = NumToKNum(_stat.level);
+    _tUpgC = NumToKNum(_stat.upgradeCost);
+
+    SDL_Color _col;
+    if(_stat.upgradeCost <= base.coins){
+        _col = {21, 111, 48};
+    }else{
+        _col = {208, 0, 0};
+    }
+    _stat.textTex = renderText(_tLvl + ": " + _tUpgC, _col, renderer, fonts[1]);
+}
+
+void Game::statBaseUpgF(Stat& _stat, bool _texOnly){
+    if(base.turretBays_2[selectedBayID]->turret != nullptr){
+        statUpgF(_stat, _texOnly);
+    }
+
 }
 
 void Game::drawUpgBtns(){
@@ -1657,14 +2030,14 @@ void Game::drawBase(){
     drawTexture(base.baseTexID, base.pos);
     for(int i = 0; i < 21; i++){
         if(i == selectedBayID){
-            SDL_Rect _selectedRect = base.turret_Rects[i];
+            SDL_Rect _selectedRect = base.turretBays_2[i]->turret_Rect;
             _selectedRect.w = double(_selectedRect.w) * 1.5;
             _selectedRect.h = double(_selectedRect.h) * 1.5;
             _selectedRect.x -= double(_selectedRect.w) / 6;
             _selectedRect.y -= double(_selectedRect.h) / 6;
             drawTexture(base.turretBaseTexID, _selectedRect);
         }else{
-            drawTexture(base.turretBaseTexID, base.turret_Rects[i]);
+            drawTexture(base.turretBaseTexID, base.turretBays_2[i]->turret_Rect);
         }
     }
 }
@@ -1672,14 +2045,21 @@ void Game::drawBase(){
 void Game::newTurret(Turret::turretType _turretType){
     int _newTurretID = base.getFreeBase();
     if((_newTurretID != -1) && (_newTurretID < 21)){
-        double _x = base.turret_Rects[_newTurretID].x;
-        double _y = base.turret_Rects[_newTurretID].y;
+        double _x = base.turretBays_2[_newTurretID]->turret_Rect.x;
+        double _y = base.turretBays_2[_newTurretID]->turret_Rect.y;
         Turret* t = new Turret(_x, _y, _turretType);
         activeTurrets[_newTurretID] = t;
-        base.turretBays[_newTurretID] = t;
-        t->setStatButton(Turret::tsDMG, newStatForTurret(&(t->stats[Turret::tsDMG]), dmgIconID, "+ Dmg ", 0));
-        t->setStatButton(Turret::tsAUTOFIRE, newStatForTurret(&(t->stats[Turret::tsAUTOFIRE]), autofireIconID, "+ FireRate ", 1));
-        t->setStatButton(Turret::tsRANGE, newStatForTurret(&(t->stats[Turret::tsRANGE]), fireRangeIconID, "+ Range ", 2));
+        base.turretBays_2[_newTurretID]->turret = t;
+
+        Button* statButtonPtr = newStatForTurret(&(t->stats[Turret::tsDMG]), dmgIconID, std::string("+ Dmg "));
+        t->setStatButton(Turret::tsDMG, statButtonPtr);
+
+        statButtonPtr = newStatForTurret(&(t->stats[Turret::tsAUTOFIRE]), autofireIconID, std::string("+ FireRate "));
+        t->setStatButton(Turret::tsAUTOFIRE, statButtonPtr);
+
+        statButtonPtr = newStatForTurret(&(t->stats[Turret::tsRANGE]), fireRangeIconID, std::string("+ Range "));
+        t->setStatButton(Turret::tsRANGE, statButtonPtr);
+
         t->statButtons[Turret::tsDMG]->active = false;
         t->statButtons[Turret::tsAUTOFIRE]->active = false;
         t->statButtons[Turret::tsRANGE]->active = false;
@@ -1703,12 +2083,13 @@ bool Game::update(double dTime){
     tick = false;
     if(!paused){
         fpsTicker -= dTime;
-        if(clickBounce > 0.0){
-            clickBounce -= dTime;
-        }
         if(fpsTicker < 0){
             fpsTicker = 1000.0 / fps;
             tick = true;
+        }
+
+        if(clickBounce > 0.0){
+            clickBounce -= dTime;
         }
         healTicker -= dTime;
         if(healTicker < 0){
@@ -1723,135 +2104,16 @@ bool Game::update(double dTime){
     }
     lClick = false;
 
-    while(SDL_PollEvent(&e) != 0){
-        switch(e.type){
-            case SDL_QUIT:
-                return true;
-                break;
-            case SDL_KEYDOWN:
-                switch(e.key.keysym.sym){
-                    case SDLK_q:
-                        return true;
-                        break;
-                    case SDLK_LEFT:
-                        if(ViewAngle > (-360.0)){
-                            ViewAngle -= 90.0;
-                        }else{
-                            ViewAngle = 0.0;
-                        }
-                        break;
-                    case SDLK_RIGHT:
-                        if(ViewAngle < (360.0)){
-                            ViewAngle += 90.0;
-                        }else{
-                            ViewAngle = 0.0;
-                        }
-                        break;
-                    case SDLK_UP:
-                        if(viewScale > 0.5){
-                            viewScale -= 0.1;
-                        }else{
-                            viewScale = 0.5;
-                        }
-                        break;
-                    case SDLK_DOWN:
-                        if(viewScale < 2.0){
-                            viewScale += 0.1;
-                        }else{
-                            viewScale = 2.0;
-                        }
-                        break;
-                    case SDLK_RETURN:
-                        if(gameOver){
-                            updateState(gsInit);
-                        }
-                        break;
-                    case SDLK_p:
-                        paused = !paused;
-                        break;
-                }
-                break;
-            case SDL_MOUSEMOTION:
-                SDL_GetMouseState(&mouseX, &mouseY);
-                break;
-            case SDL_MOUSEBUTTONDOWN:
-                if(e.button.button == SDL_BUTTON_LEFT){
-                    if(clickBounce <= 0.0){
-                        if(gameOver){
-                            updateState(gsInit);
-                        }
-                        lClick = true;
-                        clickBounce = 10.0;
-                    }else{
-                        lClick = false;
-                    }
-                }
-                break;
-            case SDL_MOUSEBUTTONUP:
-                if(e.button.button == SDL_BUTTON_LEFT){
-                    lClick = false;
-                }
-                break;
-            case SDL_MOUSEWHEEL:
-                if(e.wheel.y > 0){
-                    if(viewScale < 2.0){
-                        viewScale += e.wheel.y * 0.1;
-                    }
-                    if(viewScale > 2.0){
-                        viewScale = 2.0;
-                    }
-                }else if(e.wheel.y < 0){
-                    if(viewScale > 0.5){
-                        viewScale += e.wheel.y * 0.1;
-                    }
-                    if(viewScale < 0.5){
-                        viewScale = 0.5;
-                    }
-                }
-                break;
-        }
-    }// poll &e
-
-    if(btnsActive){
-        for(std::vector<Button*>::iterator it = buttons.begin(); it != buttons.end(); it++){
-            Button& B = *(*it);
-            B.update(dTime);
-            if(B.checkOver(mouseX, mouseY)){
-                if(lClick){
-                    if(B.checkClick()){
-                        break;
-                    }
-                }
-                Stat* _s = B.getStat();
-                SDL_Rect tRect;
-                if(_s == nullptr){
-                    tRect = ngbRect;
-                }else{
-                    tRect = _s->btnTexRect;
-                }
-                tRect.x += 16;
-                tRect.y -= 16;
-                int txw, txh;
-                SDL_Texture* _tex = B.getTexture();
-                SDL_QueryTexture(_tex, NULL, NULL, &txw, &txh);
-                tRect.w = txw;
-                tRect.h = txh;
-                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-                SDL_RenderFillRect(renderer, &tRect);
-                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-                SDL_RenderDrawRect(renderer, &tRect);
-                SDL_RenderCopy(renderer, _tex, NULL, &tRect);
-            }
-        }
-    }
+    handleEvents(e);
+    updateButtons(dTime);
 
     if(state == gsInit){
+        base.initTurretBases();
         destroyButtons();
         destroyEnemies();
         destroyTextures();
         destroyStats();
         destroyTurrets();
-
         init();
         logoID = newTexture("TowerDefence.png");
         ngbID = newTexture("NewGame.png");
@@ -1949,7 +2211,6 @@ bool Game::update(double dTime){
             walkAnims[i]->addFrameTx(textures[walkAnimIDs[i]]);
         }
 
-        base.initTurretBases();
         int _turretCount = 3;
         for(int i = 0; i < _turretCount; i++){
             newTurret(static_cast<Turret::turretType>(i%3));
@@ -1959,53 +2220,27 @@ bool Game::update(double dTime){
     }else if(state == gsGame){
         SDL_SetRenderTarget(renderer, LevelSurface);
 
-        SDL_Rect tRect = grassBGRect;
-        for(int i = 0; i < bgXtiles; i++){
-            for(int j = 0; j < bgYtiles; j++){
-                tRect.x = i * 1280;
-                tRect.y = j * 720;
-                drawTexture(grassBGID, tRect);
-            }
-        }
+        drawBG();
         towerMaxHp = 240 + (statMap["maxHP"]->stat * 10);
 
-        if((lClick) && (!base.isSwapping) && (!base.isUpgrading)){
-            bool clickedBay = false;
-            for(int i = 0; i < 21; i++){
-                double scaledMX = double(mouseX);
-                double scaledMY = double(mouseY);
-                screenToLevel(scaledMX, scaledMY);
-                if((scaledMX > base.turret_Rects[i].x) && (scaledMX < (base.turret_Rects[i].x + base.turret_Rects[i].w))
-                && (scaledMY > base.turret_Rects[i].y) && (scaledMY < (base.turret_Rects[i].y + base.turret_Rects[i].h))){
-                    //change to selected bay
-                    if(selectedBayID == i){
-                        if(activeTurrets[selectedBayID] != nullptr){
-                            activeTurrets[selectedBayID]->deactivateButtons();
-                        }
-                        selectedBayID = -1;
-                    }else{
-                        if(selectedBayID != -1){
-                            if(activeTurrets[selectedBayID] != nullptr){
-                                activeTurrets[selectedBayID]->deactivateButtons();
-                            }
-                            base.startSwap(selectedBayID, i);
-                        }
-                        selectedBayID = i;
-                    }
-                    clickedBay = true;
-                    break;
-                }
-            }
-            /*if(!clickedBay){
+        if((lClick) && !(base.isSwapping)){
+            if(!checkBayClicks()){
                 if(selectedBayID != -1){
-                    activeTurrets[selectedBayID]->deactivateButtons();
+                    if(activeTurrets[selectedBayID] != nullptr){
+                        activeTurrets[selectedBayID]->deactivateButtons();
+                    }
                     selectedBayID = -1;
                 }
-            }*/
+
+            }
         }
 
-        int baseState = base.update(dTime);
-        if((baseState & Base::UpdateState::usHALF_SWAP) == Base::UpdateState::usHALF_SWAP){
+        std::vector<SDL_Rect*> upgProgressRects;
+        int baseState = base.update(dTime, &upgProgressRects);
+        for(std::map<std::string, Stat*>::iterator it = statMap.begin(); it != statMap.end(); it++){
+            (*it).second->update(dTime);
+        }
+        if((baseState & Base::baseUpdState::usHALF_SWAP) == Base::baseUpdState::usHALF_SWAP){
             int _t1 = base.swapT1ID;
             int _t2 = base.swapT2ID;
             if(activeTurrets[_t1] == nullptr){
@@ -2021,17 +2256,17 @@ bool Game::update(double dTime){
             }
 
             if(activeTurrets[_t1] != nullptr){
-                activeTurrets[_t1]->moveTurret(base.turret_Rects[_t1].x, base.turret_Rects[_t1].y);
+                activeTurrets[_t1]->moveTurret(base.turretBays_2[_t1]->turret_Rect.x, base.turretBays_2[_t1]->turret_Rect.y);
             }
             if(activeTurrets[_t2] != nullptr){
-                activeTurrets[_t2]->moveTurret(base.turret_Rects[_t2].x, base.turret_Rects[_t2].y);
+                activeTurrets[_t2]->moveTurret(base.turretBays_2[_t2]->turret_Rect.x, base.turretBays_2[_t2]->turret_Rect.y);
             }
         }
-        if((baseState & Base::UpdateState::usSWAP_FINISH) == Base::UpdateState::usSWAP_FINISH){
-            selectedBayID = -1;
+        if((baseState & Base::baseUpdState::usSWAP_FINISH) == Base::baseUpdState::usSWAP_FINISH){
+            //selectedBayID = -1;
         }
-        if((baseState & Base::UpdateState::usFINISH_UPGRADE) == Base::UpdateState::usFINISH_UPGRADE){
-            statUpgF(*(base.turretBays[0]->stats[base.upgStat]), false);
+        if((baseState & Base::baseUpdState::usFINISH_UPGRADE) == Base::baseUpdState::usFINISH_UPGRADE){
+            //
         }
 
         drawBase();
@@ -2057,29 +2292,28 @@ bool Game::update(double dTime){
             }
         }
 
-        if((baseState & Base::UpdateState::usUPGRADE) == Base::UpdateState::usUPGRADE){
-            double _progress = base.upgradeTicker / base.currentUpgradeTime;
-            SDL_Rect progressRect = base.turret_Rects[0];
-            progressRect.h = int(double(progressRect.h) * _progress);
-            drawTexture(hpBarID, progressRect);
+        if((baseState & Base::baseUpdState::usUPGRADE) == Base::baseUpdState::usUPGRADE){
+            for(std::vector<SDL_Rect*>::iterator it = upgProgressRects.begin(); it != upgProgressRects.end(); it++){
+                drawTexture(hpBarID, (*(*it)));
+            }
         }
 
-        if((selectedBayID != -1) && !(base.isSwapping) && !(base.isUpgrading)){
-            if(base.turretBays[selectedBayID] != nullptr){
+        if((selectedBayID != -1) && !(base.turretBays_2[selectedBayID]->isSwapping)){
+            if(base.turretBays_2[selectedBayID]->turret != nullptr){
                 if(!(activeTurrets[selectedBayID]->buttonsActive)){
                     activeTurrets[selectedBayID]->activateButtons();
                     for(int i = 0; i < 3; i++){
                         double _angle = ((120.0 * i) + 90) * _pi_over_180;
-                        double _x = base.turret_Rects[selectedBayID].x + (base.turret_Rects[selectedBayID].w / 2) - 40 + ((base.turret_Rects[selectedBayID].w) * std::cos(_angle));
-                        double _y = base.turret_Rects[selectedBayID].y + (base.turret_Rects[selectedBayID].h / 2) - 16 + ((base.turret_Rects[selectedBayID].h) * std::sin(_angle));
+                        double _x = base.turretBays_2[selectedBayID]->turret_Rect.x + (base.turretBays_2[selectedBayID]->turret_Rect.w / 2) - 40 + ((base.turretBays_2[selectedBayID]->turret_Rect.w) * std::cos(_angle));
+                        double _y = base.turretBays_2[selectedBayID]->turret_Rect.y + (base.turretBays_2[selectedBayID]->turret_Rect.h / 2) - 16 + ((base.turretBays_2[selectedBayID]->turret_Rect.h) * std::sin(_angle));
                         SDL_Rect _dest = {int(_x), int(_y), 80, 16};
                         Stat* s = activeTurrets[selectedBayID]->stats[i];
                         s->moveStat(_dest);
-                        _x = base.turret_Rects[selectedBayID].x - (base.turret_Rects[selectedBayID].w / 2);
-                        _y = base.turret_Rects[selectedBayID].y - (base.turret_Rects[selectedBayID].h / 2);
+                        _x = base.turretBays_2[selectedBayID]->turret_Rect.x - (base.turretBays_2[selectedBayID]->turret_Rect.w / 2);
+                        _y = base.turretBays_2[selectedBayID]->turret_Rect.y - (base.turretBays_2[selectedBayID]->turret_Rect.h / 2);
                         levelToScreen(_x, _y);
-                        _dest.x = _x + ((base.turret_Rects[selectedBayID].w * viewScale) * std::cos(_angle)) - 20;
-                        _dest.y = _y + ((base.turret_Rects[selectedBayID].h * viewScale) * std::sin(_angle)) - 8;
+                        _dest.x = _x + ((base.turretBays_2[selectedBayID]->turret_Rect.w * viewScale) * std::cos(_angle)) - 20;
+                        _dest.y = _y + ((base.turretBays_2[selectedBayID]->turret_Rect.h * viewScale) * std::sin(_angle)) - 8;
                         activeTurrets[selectedBayID]->statButtons[i]->moveButton(_dest);
                     }
                 }
@@ -2135,7 +2369,7 @@ bool Game::update(double dTime){
             }
         }
 
-
+        SDL_SetRenderTarget(renderer, LevelSurface);
         for(std::vector<Enemy*>::iterator it = enemies.begin(); it != enemies.end();){
             if((*it) == nullptr){
                 it++;
@@ -2189,21 +2423,26 @@ bool Game::update(double dTime){
                 }
 
                 SDL_Rect enemyRect = {int(E.x), int(E.y), int(E.w), int(E.h)};
+                SDL_Rect vRect = {(LEVEL_W / 2.0) - (ViewRect.w / 2.0), (LEVEL_H / 2.0) - (ViewRect.h / 2.0), ViewRect.w, ViewRect.h};
                 //double _angle = 360.0 - ViewAngle;
                 int _texID = -1;
                 _texID = walkAnimIDs[int(E.facingDir)];
                 if(_texID != -1){
                     SDL_Rect tR = {E.animInst->currentFrame * E.animInst->w, 0, 32, 32};
-                    if(textures[_texID] != nullptr){
-                        SDL_RenderCopy(renderer, textures[_texID], &tR, &enemyRect);
-                    }else{
-                        std::cout << "Null Texture\n";
+                    if(((E.x + E.w + 1) > vRect.x) || ((E.x + 1) < (vRect.x + vRect.w)) ||
+                       ((E.y + E.h + 9) > vRect.y) || ((E.y + 9) < (vRect.y + vRect.h))){
+                        if(textures[_texID] != nullptr){
+                            //yellow glitch caused by rendercopy || drawtexture
+                            SDL_RenderCopy(renderer, textures[_texID], &tR, &enemyRect);
+                            SDL_Rect hpRect = enemyRect;
+                            hpRect.y -= 8;
+                            hpRect.h = 4;
+                            hpRect.w = int(hpRect.w * double(double(E.hp) / double(E.maxHp)));
+                            drawTexture(hpBarID, hpRect);
+                        }else{
+                            std::cout << "Null Texture\n";
+                        }
                     }
-                    SDL_Rect hpRect = enemyRect;
-                    hpRect.y -= 8;
-                    hpRect.h = 4;
-                    hpRect.w = int(hpRect.w * double(double(E.hp) / double(E.maxHp)));
-                    drawTexture(hpBarID, hpRect);
                 }else{
                     std::cout << "Invalid texID\n";
                 }
@@ -2267,6 +2506,8 @@ bool Game::update(double dTime){
             SDL_Rect splashRect = {0, 0, SCR_W, SCR_H};
             drawTexture(diedSplashID, splashRect);
         }
+    }else if(state == gsClose){
+        return true;
     }
 
     if(paused){
@@ -2299,6 +2540,10 @@ void Game::updateState(GState newState){
 }
 
 int main(int argc, char* argv[]){
+    //note
+    //fix disappeared sprites, extra levels.
+    //split to class files.
+    //add z layers for render.
     std::srand(time(nullptr));
     SDL_Window* window = NULL;
     SDL_Texture* ScrSurface;
