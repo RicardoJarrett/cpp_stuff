@@ -2,9 +2,9 @@
 ## <p align="center">About</p>
 A simple Tower Defence game. Tap / Click to shoot the enemies.
 The aim of this project is to practice creating and implementing UI and game ideas. Developed using SDL2.
+- NOTE Some graphics have been used without checking or considering ownership and usage rights. A list can be found at the bottom of this readme.
 ## <p align="center">Current Work</p>
-- Continue refactor, splitting larger or repeated blocks into individual functions.
-- Separating classes into their own source files.
+- Continue refactor, fix yellow flash, turret swap bugs.
 
 ## <p align="center">Images</p>
 <p align="center"><img src="gameplayImages/TD_20_04_2023_TowerUpgrade.png" height="320"> <img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
@@ -48,3 +48,16 @@ Link + compile with SDL2
 ### <p align="center">Old Gameplay Images</p>
 <p align="center"><img src="gameplayImages/TD_15_04_2023_multiTurret.png" height="320"> <img src="gameplayImages/TD_13_04_2023_boss.png" height="320"></p>
 <p align="center"><img src="Gameplay_08042023.png" height="320"> <img src="Gameplay.png" width="320" height="320"></p>
+
+### <p align="center">Images and links</p>
+- /Walk_Sprites/\*.\*  Created by Andrew.
+- OpenGameArt
+- /images/bullet.png        //
+- /images/MuzzleFlash.png   //muzzle_flashs
+- /images/MuzzleFlash_o.png
+- /td_basic_towers/\*.\*
+- /images/impact.png, impact_0 - impact_3.png  //alotofimpacts3of20
+- /images/coin.png       //
+- /images/hourglass.png  //
+- slkscr.ttf             //font
+- Everything else - made by Me.
