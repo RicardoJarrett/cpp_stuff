@@ -3,8 +3,7 @@
 A simple Tower Defence game. Tap / Click to shoot the enemies.
 The aim of this project is to practice creating and implementing UI and game ideas. Developed using SDL2.
 ## <p align="center">Current Work</p>
-- Continue refactor, splitting larger or repeated blocks into individual functions.
-- Separating classes into their own source files.
+- Continue refactor, fix yellow flash, turret swap bugs.
 
 ## <p align="center">Images</p>
 <p align="center"><img src="gameplayImages/TD_20_04_2023_TowerUpgrade.png" height="320"> <img src="gameplayImages/TD_15_04_2023_Enemy_Sprites-8d.png" height="320"></p>
