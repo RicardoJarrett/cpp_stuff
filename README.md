@@ -7,4 +7,4 @@ Features endless waves of multiple enemy types. Boss waves with increased danger
 ## <p align="center">Multi-Layered Map Editor</p>
 <p align="center"><img src="LevelEditor/test.png" height="320"> <img src="LevelEditor/Sample.png" height="320"></p>
 Load a spritesheet and create maps with multiple layers. Select a square grid of tiles and draw them all to the map at once.
-<p align="center"><img src="LevelEditor/LevelEditor_square_draw.png"></p>
+<p align="center"><img src="LevelEditor/LevelEditor_square_draw.png" height="320"></p>
